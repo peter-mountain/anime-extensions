@@ -1,0 +1,44 @@
+name: Build Shinden (release)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      STORE_FILE: ${{ github.workspace }}/shinden-release.jks
+      STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $STORE_FILE
+          ls -la $STORE_FILE
+          keytool -list -keystore $STORE_FILE -storepass "$STORE_PASSWORD" 2>&1 | head -5
+
+      - name: Spotless apply
+        run: |
+          chmod +x ./gradlew
+          ./gradlew spotlessApply
+
+      - name: Build shinden release APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :src:pl:shinden:assembleRelease \
+            -Pandroid.injected.signing.store.file="$STORE_FILE" \
+            -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$STORE_PASSWORD"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shinden-release-apk
+          path: src/pl/shinden/build/outputs/apk/release/*.apk
