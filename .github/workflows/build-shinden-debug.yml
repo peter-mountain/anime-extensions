@@ -1,0 +1,25 @@
+name: Build Shinden (debug)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build shinden debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :src:pl:shinden:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shinden-debug-apk
+          path: src/pl/shinden/build/outputs/apk/debug/*.apk
