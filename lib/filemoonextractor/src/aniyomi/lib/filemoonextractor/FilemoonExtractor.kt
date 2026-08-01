@@ -294,6 +294,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
     private fun decrypt(input: PlaybackData): String {
         val keyBytes = when (input.version) {
             null -> input.keyParts.map { decodeBase64Url(it) }.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
+
             else -> {
                 val v = input.version.toIntOrNull() ?: 1
                 val parts = input.keyParts

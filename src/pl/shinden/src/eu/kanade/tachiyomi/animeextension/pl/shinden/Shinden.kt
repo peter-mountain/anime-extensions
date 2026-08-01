@@ -84,6 +84,8 @@ class Shinden :
     // Track whether myAnime mode is active (for getFilterList)
     @Volatile
     private var isMyAnimeActive = false
+    @Volatile
+    private var myAnimeNoUserId = false
     private var myAnimeRemainingStatuses: List<String> = emptyList()
     private var myAnimePendingResults: MutableList<SAnime> = mutableListOf()
     private var myAnimeActiveTypeFilter: String? = null
@@ -290,6 +292,7 @@ class Shinden :
         val myAnimeFilter = filters.filterIsInstance<MyAnimeFilter>().firstOrNull()
         if (myAnimeFilter != null && myAnimeFilter.state) {
             isMyAnimeActive = true
+            myAnimeNoUserId = false
             myAnimeSearchQuery = query.trim().ifBlank { null }
             val userId = preferences.getString("shinden_user_id", null)
             if (userId != null) {
@@ -361,12 +364,16 @@ class Shinden :
                     ShindenLog.d(TAG, "my anime server-side: fetching all (no status filter)")
                     return GET(url, headers)
                 }
+            } else {
+                ShindenLog.w(TAG, "Moje anime: no userId, returning empty list")
+                myAnimeNoUserId = true
             }
-            ShindenLog.w(TAG, "Anime list not available - not logged in?")
         }
 
-        isMyAnimeActive = false
-        myAnimeSearchQuery = null
+        if (!myAnimeNoUserId) {
+            isMyAnimeActive = false
+            myAnimeSearchQuery = null
+        }
 
         val url = buildString {
             append("$baseUrl/series?search=")
@@ -442,6 +449,13 @@ class Shinden :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
+        // No userId + Moje anime = empty
+        if (isMyAnimeActive && myAnimeNoUserId) {
+            isMyAnimeActive = false
+            myAnimeNoUserId = false
+            myAnimeSearchQuery = null
+            return AnimesPage(emptyList(), false)
+        }
         val body = response.peekBody(2048).string()
         if (body.trimStart().startsWith("{") && body.contains("\"result\"")) {
             val entries = parseAnimeListApiEntries(response)

@@ -1,6 +1,5 @@
 package aniyomi.lib.meganzextractor
 
-import android.util.Log
 import keiyoushi.utils.ShindenLog
 import okhttp3.OkHttpClient
 import okhttp3.Request

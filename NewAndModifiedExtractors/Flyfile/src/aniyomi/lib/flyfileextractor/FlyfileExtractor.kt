@@ -1,6 +1,5 @@
 package aniyomi.lib.flyfileextractor
 
-import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
