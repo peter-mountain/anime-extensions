@@ -6,6 +6,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      STORE_FILE: shinden-release.jks
+      STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -15,7 +20,7 @@ jobs:
           java-version: '17'
 
       - name: Decode keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > shinden-release.jks
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $STORE_FILE
 
       - name: Spotless apply
         run: |
@@ -26,10 +31,10 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew :src:pl:shinden:assembleRelease \
-            -Pandroid.injected.signing.store.file=shinden-release.jks \
-            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+            -Pandroid.injected.signing.store.file=$STORE_FILE \
+            -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
       - uses: actions/upload-artifact@v4
         with:
