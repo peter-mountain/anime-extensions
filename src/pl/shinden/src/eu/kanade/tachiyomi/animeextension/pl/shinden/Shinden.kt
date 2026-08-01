@@ -442,6 +442,12 @@ class Shinden :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
+        // Not logged in + Moje anime = empty
+        if (isMyAnimeActive && !isLoggedIn) {
+            isMyAnimeActive = false
+            myAnimeSearchQuery = null
+            return AnimesPage(emptyList(), false)
+        }
         val body = response.peekBody(2048).string()
         if (body.trimStart().startsWith("{") && body.contains("\"result\"")) {
             val entries = parseAnimeListApiEntries(response)

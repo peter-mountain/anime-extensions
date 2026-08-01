@@ -105,5 +105,5 @@ class MyAnimeWatchStatusFilter :
             WatchStatus("Pomijam", "skip"),
         ),
     ) {
-    class WatchStatus(name: String, val apiPath: String) : AnimeFilter.CheckBox(name, true)
+    class WatchStatus(name: String, val apiPath: String) : AnimeFilter.CheckBox(name, false)
 }
