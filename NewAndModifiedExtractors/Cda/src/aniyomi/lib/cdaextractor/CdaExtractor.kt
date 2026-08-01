@@ -1,6 +1,5 @@
 package aniyomi.lib.cdaextractor
 
-import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.ShindenLog

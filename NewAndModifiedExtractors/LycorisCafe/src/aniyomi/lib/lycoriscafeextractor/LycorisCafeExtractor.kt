@@ -1,7 +1,6 @@
 package aniyomi.lib.lycoriscafeextractor
 
 import android.util.Base64
-import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
