@@ -361,8 +361,10 @@ class Shinden :
                     ShindenLog.d(TAG, "my anime server-side: fetching all (no status filter)")
                     return GET(url, headers)
                 }
+            } else {
+                ShindenLog.w(TAG, "Moje anime: not logged in, returning empty list")
+                return AnimesPage(emptyList(), false)
             }
-            ShindenLog.w(TAG, "Anime list not available - not logged in?")
         }
 
         isMyAnimeActive = false
