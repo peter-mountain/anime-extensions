@@ -20,7 +20,10 @@ jobs:
           java-version: '17'
 
       - name: Decode keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $STORE_FILE
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $STORE_FILE
+          ls -la $STORE_FILE
+          keytool -list -keystore $STORE_FILE -storepass "$STORE_PASSWORD" 2>&1 | head -5
 
       - name: Spotless apply
         run: |
