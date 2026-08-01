@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      STORE_FILE: shinden-release.jks
+      STORE_FILE: ${{ github.workspace }}/shinden-release.jks
       STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -31,7 +31,7 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew :src:pl:shinden:assembleRelease \
-            -Pandroid.injected.signing.store.file=$STORE_FILE \
+            -Pandroid.injected.signing.store.file="$STORE_FILE" \
             -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
