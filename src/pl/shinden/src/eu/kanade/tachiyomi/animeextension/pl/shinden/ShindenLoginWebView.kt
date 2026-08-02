@@ -6,18 +6,14 @@ import android.app.Dialog
 import android.content.Context
 import android.util.TypedValue
 import android.view.WindowManager
-import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import keiyoushi.utils.ExtLog
-import okhttp3.Cookie
-import okhttp3.CookieJar
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.HttpUrl
 import org.jsoup.Jsoup
 
 object ShindenLoginWebView {
@@ -58,19 +54,15 @@ object ShindenLoginWebView {
                     request: android.webkit.WebResourceRequest?,
                 ): Boolean {
                     val url = request?.url?.toString() ?: return false
-                    if (url.startsWith("https://shinden.pl") && view != null) {
-                        view.loadUrl(url, buildMap {
-                            put("User-Agent", settings.userAgentString ?: "")
-                        })
+                    if (url.startsWith("https://shinden.pl")) {
+                        view?.loadUrl(url, emptyMap())
                         return true
                     }
                     return false
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    // Only inject profile data on our custom HTML (data: URL), not on real Shinden pages
-                    val isCustomPage = url == null || url.startsWith("data:")
-                    if (isCustomPage && isLoggedIn && view != null && savedUserId != null && savedDisplayName != null) {
+                    if (isLoggedIn && view != null && savedUserId != null && savedDisplayName != null) {
                         view.postDelayed({
                             view.evaluateJavascript(
                                 "onLoginSuccess('$savedUserId', '${escapeJs(savedDisplayName)}')",
@@ -92,18 +84,7 @@ object ShindenLoginWebView {
         }
 
         // JS bridge
-        val userAgent = webView.settings.userAgentString ?: ""
-
         val jsInterface = object {
-            @JavascriptInterface
-            fun openUrl(url: String) {
-                webView.post {
-                    webView.loadUrl(url, buildMap {
-                        put("User-Agent", userAgent)
-                    })
-                }
-            }
-
             @JavascriptInterface
             fun login(username: String, password: String) {
                 performLogin(
@@ -135,17 +116,11 @@ object ShindenLoginWebView {
         }
         webView.addJavascriptInterface(jsInterface, "AndroidBridge")
 
-        // Sync OkHttp session cookies to WebView
-        syncCookiesToWebView(webView, client.cookieJar)
-
         // Load HTML with accent color injected
         val html = LOGIN_HTML
             .replace("__ACCENT__", accentColor)
             .replace("__ACCENT_DARK__", accentDark)
         webView.loadDataWithBaseURL("https://shinden.pl", html, "text/html", "UTF-8", null)
-
-        // Inject link interceptor to handle all clicks as absolute URLs
-        injectLinkInterceptor(webView)
 
         val dialog = Dialog(
             activity,
@@ -170,52 +145,7 @@ object ShindenLoginWebView {
         }, 500)
     }
 
-
-    // ================================ Link interceptor ================================
-
-    private fun injectLinkInterceptor(webView: WebView) {
-        webView.evaluateJavascript(
-            """
-            (function() {
-                document.addEventListener('click', function(e) {
-                    var el = e.target;
-                    while (el && el.tagName !== 'A') el = el.parentElement;
-                    if (el && el.href) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.AndroidBridge.openUrl(el.href);
-                    }
-                }, true);
-            })();
-            """,
-            null,
-        )
-    }
-
-    // ================================ Cookie sync ================================
-
-    private fun syncCookiesToWebView(
-        webView: WebView,
-        cookieJar: CookieJar,
-        baseUrl: String = "https://shinden.pl",
-    ) {
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-
-        // Get all cookies from OkHttp for this URL
-        val httpUrl = HttpUrl.Builder().scheme("https").host("shinden.pl").build()
-        val cookies = cookieJar.loadForRequest(httpUrl)
-        for (cookie in cookies) {
-            val cookieStr = "${cookie.name}=${cookie.value}; " +
-                "domain=${cookie.domain}; " +
-                "path=${cookie.path}"
-            cookieManager.setCookie("https://shinden.pl", cookieStr)
-        }
-        cookieManager.flush()
-        ExtLog.d(TAG, "synced ${cookies.size} cookies to WebView")
-    }
-
-    // ================================ Login logic ====================
+    // ================================ Login logic ================================
 
     private fun performLogin(
         context: Context,
@@ -303,9 +233,6 @@ object ShindenLoginWebView {
 
                 // Parse profile page for stats
                 val profileData = parseProfile(client, headers, userId, displayName)
-
-                // Sync cookies from login response to WebView
-                syncCookiesToWebView(webView, client.cookieJar)
 
                 // Notify WebView
                 webView.post {
