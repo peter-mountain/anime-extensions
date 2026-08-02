@@ -1272,7 +1272,7 @@ class Shinden :
             title = "Preferowana jakość"
             entries = arrayOf("Auto", "1080p", "720p", "480p", "360p")
             entryValues = arrayOf("auto", "1080", "720", "480", "360")
-            setDefaultValue("auto")
+            setDefaultValue("1080")
             summary = "%s"
         }.let(screen::addPreference)
 
@@ -1345,7 +1345,7 @@ class Shinden :
                     title = "Pomiń domeny",
                     currentItems = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion") ?: "",
                     allowReorder = false,
-                    defaultSuggestions = listOf("hqq.tv", "luluvid.com", "vk.com", "dailymotion", "ok.ru"),
+                    defaultSuggestions = listOf("hqq.tv", "luluvid.com", "vk.com", "dailymotion"),
                     onSave = { newDomains ->
                         preferences.edit().putString("skip_domains_list", newDomains).apply()
                         pref.summary = newDomains.replace(",", ", ").ifBlank { "Kliknij aby edytować" }
