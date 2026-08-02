@@ -11,7 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import uy.kohesive.injekt.Injekt
@@ -28,7 +28,7 @@ class PlaymateExtractor(private val client: OkHttpClient) {
     private val androidUA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.134 Mobile Safari/537.36"
 
     fun videosFromUrl(url: String, prefix: String = "", headers: Headers? = null): List<Video> {
-        ShindenLog.d(tag, "Starting WebView resolution for: $url")
+        ExtLog.d(tag, "Starting WebView resolution for: $url")
 
         val latch = CountDownLatch(1)
         var webView: WebView? = null
@@ -37,14 +37,14 @@ class PlaymateExtractor(private val client: OkHttpClient) {
         class JsBridge(private val latch: CountDownLatch) {
             @JavascriptInterface
             fun onHlsUrl(url: String) {
-                ShindenLog.d(tag, "JS bridge received HLS: ${url.take(120)}")
+                ExtLog.d(tag, "JS bridge received HLS: ${url.take(120)}")
                 m3u8Url = url
                 latch.countDown()
             }
 
             @JavascriptInterface
             fun log(msg: String) {
-                ShindenLog.d(tag, "JS: ${msg.take(200)}")
+                ExtLog.d(tag, "JS: ${msg.take(200)}")
             }
         }
 
@@ -70,7 +70,7 @@ class PlaymateExtractor(private val client: OkHttpClient) {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val reqUrl = request?.url?.toString() ?: return false
                     if (reqUrl.contains("/sandboxed")) {
-                        ShindenLog.d(tag, "Blocked sandbox redirect: $reqUrl")
+                        ExtLog.d(tag, "Blocked sandbox redirect: $reqUrl")
                         return true
                     }
                     return false
@@ -79,10 +79,10 @@ class PlaymateExtractor(private val client: OkHttpClient) {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                     val reqUrl = request?.url?.toString() ?: return null
                     if (!reqUrl.contains("/assets/") && !reqUrl.contains("cloudflare") && !reqUrl.contains(".css") && !reqUrl.contains(".png") && !reqUrl.contains(".jpg") && !reqUrl.contains(".svg") && !reqUrl.contains(".woff")) {
-                        ShindenLog.d(tag, "INTERCEPT: ${request?.method} ${reqUrl.take(200)}")
+                        ExtLog.d(tag, "INTERCEPT: ${request?.method} ${reqUrl.take(200)}")
                     }
                     if (reqUrl.contains(".m3u8") && !reqUrl.contains("/assets/")) {
-                        ShindenLog.d(tag, "Intercepted m3u8: ${reqUrl.take(150)}")
+                        ExtLog.d(tag, "Intercepted m3u8: ${reqUrl.take(150)}")
                         m3u8Url = reqUrl
                         latch.countDown()
                     }
@@ -91,7 +91,7 @@ class PlaymateExtractor(private val client: OkHttpClient) {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    ShindenLog.d(tag, "Page finished: $url")
+                    ExtLog.d(tag, "Page finished: $url")
                     injectJSHook(view, bridgeName)
                     startJwPolling(view, bridgeName)
                 }
@@ -102,11 +102,11 @@ class PlaymateExtractor(private val client: OkHttpClient) {
 
         return try {
             val found = latch.await(20, TimeUnit.SECONDS)
-            ShindenLog.d(tag, "Latch result: found=$found m3u8=${m3u8Url?.take(120)}")
+            ExtLog.d(tag, "Latch result: found=$found m3u8=${m3u8Url?.take(120)}")
 
             val resolvedUrl = m3u8Url
             if (resolvedUrl.isNullOrBlank()) {
-                ShindenLog.e(tag, "No m3u8 URL found after 20s")
+                ExtLog.e(tag, "No m3u8 URL found after 20s")
                 webView?.let { handler.post { it.destroy() } }
                 return emptyList()
             }
@@ -123,7 +123,7 @@ class PlaymateExtractor(private val client: OkHttpClient) {
                 videoHeaders = outHeaders,
                 videoNameGen = { "${prefix}Playmate - $it" },
             )
-            ShindenLog.d(tag, "HLS tracks: ${result.size}")
+            ExtLog.d(tag, "HLS tracks: ${result.size}")
 
             handler.post { webView?.destroy() }
 
@@ -131,7 +131,7 @@ class PlaymateExtractor(private val client: OkHttpClient) {
                 listOf(Video(resolvedUrl, "${prefix}Playmate HLS", resolvedUrl, outHeaders))
             }
         } catch (e: InterruptedException) {
-            ShindenLog.e(tag, "Timeout: ${e.message}")
+            ExtLog.e(tag, "Timeout: ${e.message}")
             handler.post { webView?.destroy() }
             emptyList()
         }
@@ -219,7 +219,7 @@ class PlaymateExtractor(private val client: OkHttpClient) {
             """.trimIndent()
             view.post { view.evaluateJavascript(js, null) }
         } catch (e: Exception) {
-            ShindenLog.e(tag, "JS inject error: ${e.message}")
+            ExtLog.e(tag, "JS inject error: ${e.message}")
         }
     }
 

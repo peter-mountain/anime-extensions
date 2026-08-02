@@ -1,6 +1,6 @@
 package aniyomi.lib.meganzextractor
 
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
@@ -114,7 +114,7 @@ internal class MegaNzProxyServer(port: Int, private val client: OkHttpClient) : 
                         }
                     }
                 } catch (e: Exception) {
-                    ShindenLog.e(tag, "Error streaming mega content: ${e.message}")
+                    ExtLog.e(tag, "Error streaming mega content: ${e.message}")
                 } finally {
                     try {
                         pipedOut.close()
@@ -128,7 +128,7 @@ internal class MegaNzProxyServer(port: Int, private val client: OkHttpClient) : 
             if (isPartial) response.addHeader("Content-Range", "bytes $start-$end/${info.size}")
             response
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error setting up mega stream: ${e.message}")
+            ExtLog.e(tag, "Error setting up mega stream: ${e.message}")
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "error: ${e.message}")
         }
     }

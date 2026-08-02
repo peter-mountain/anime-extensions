@@ -1,6 +1,6 @@
 package aniyomi.lib.googledriveplayerextractor
 
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
@@ -30,7 +30,7 @@ internal class GoogleDriveProxyServer(
     fun register(info: StreamInfo): String {
         val id = UUID.randomUUID().toString()
         streams[id] = info
-        ShindenLog.d(tag, "Registered stream $id -> ${info.videoUrl.take(80)}")
+        ExtLog.d(tag, "Registered stream $id -> ${info.videoUrl.take(80)}")
         return id
     }
 
@@ -43,7 +43,7 @@ internal class GoogleDriveProxyServer(
             streams[parts[1]]
                 ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "unknown stream: ${parts[1]}")
 
-        ShindenLog.d(tag, "Proxy request for ${parts[1]} range=${session.headers["range"]}")
+        ExtLog.d(tag, "Proxy request for ${parts[1]} range=${session.headers["range"]}")
 
         val rangeHeader = session.headers["range"]
 
@@ -73,7 +73,7 @@ internal class GoogleDriveProxyServer(
             val contentLength = upstreamResp.header("Content-Length")?.toLongOrNull() ?: -1
             val upstreamCode = upstreamResp.code
 
-            ShindenLog.d(tag, "Upstream response: $upstreamCode content-type=$contentType len=$contentLength")
+            ExtLog.d(tag, "Upstream response: $upstreamCode content-type=$contentType len=$contentLength")
 
             if (upstreamCode == 403) {
                 return newFixedLengthResponse(
@@ -99,7 +99,7 @@ internal class GoogleDriveProxyServer(
 
             response
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Proxy error: ${e.message}", e)
+            ExtLog.e(tag, "Proxy error: ${e.message}", e)
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "error: ${e.message}")
         }
     }

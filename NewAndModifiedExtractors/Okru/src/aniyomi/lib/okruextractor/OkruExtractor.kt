@@ -4,7 +4,7 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import keiyoushi.utils.commonEmptyHeaders
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
@@ -42,37 +42,37 @@ class OkruExtractor(private val client: OkHttpClient, private val headers: Heade
     }
 
     suspend fun videosFromUrl(url: String, prefix: String = "", fixQualities: Boolean = true): List<Video> {
-        ShindenLog.d(TAG, "fetching: $url")
+        ExtLog.d(TAG, "fetching: $url")
         val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
         val videoString = document.selectFirst("div[data-options]")
             ?.attr("data-options")
         if (videoString == null) {
-            ShindenLog.w(TAG, "no data-options found for $url")
+            ExtLog.w(TAG, "no data-options found for $url")
             return emptyList<Video>()
         }
-        ShindenLog.d(TAG, "data-options length=${videoString.length}")
+        ExtLog.d(TAG, "data-options length=${videoString.length}")
 
         val result = when {
             "ondemandHls" in videoString -> {
-                ShindenLog.d(TAG, "found ondemandHls")
+                ExtLog.d(TAG, "found ondemandHls")
                 val playlistUrl = videoString.extractLink("ondemandHls")
-                ShindenLog.d(TAG, "hls playlist: $playlistUrl")
+                ExtLog.d(TAG, "hls playlist: $playlistUrl")
                 playlistUtils.extractFromHls(playlistUrl, videoNameGen = { "Okru:$it".addPrefix(prefix) })
             }
 
             "ondemandDash" in videoString -> {
-                ShindenLog.d(TAG, "found ondemandDash")
+                ExtLog.d(TAG, "found ondemandDash")
                 val playlistUrl = videoString.extractLink("ondemandDash")
-                ShindenLog.d(TAG, "dash playlist: $playlistUrl")
+                ExtLog.d(TAG, "dash playlist: $playlistUrl")
                 playlistUtils.extractFromDash(playlistUrl, videoNameGen = { "Okru:$it".addPrefix(prefix) })
             }
 
             else -> {
-                ShindenLog.d(TAG, "falling back to JSON parsing")
+                ExtLog.d(TAG, "falling back to JSON parsing")
                 videosFromJson(videoString, prefix, fixQualities)
             }
         }
-        ShindenLog.d(TAG, "returning ${result.size} videos")
+        ExtLog.d(TAG, "returning ${result.size} videos")
         return result
     }
 
@@ -94,12 +94,12 @@ class OkruExtractor(private val client: OkHttpClient, private val headers: Heade
                 if (fixQualities) fixQuality(it) else it
             }
             val videoQuality = "Okru:$quality".addPrefix(prefix)
-            ShindenLog.d(TAG, "quality=$quality url=$videoUrl")
+            ExtLog.d(TAG, "quality=$quality url=$videoUrl")
 
             if (videoUrl.startsWith("https://")) {
                 Video(videoUrl, videoQuality, videoUrl, videoHeaders)
             } else {
-                ShindenLog.w(TAG, "skipping non-https url: $videoUrl")
+                ExtLog.w(TAG, "skipping non-https url: $videoUrl")
                 null
             }
         }

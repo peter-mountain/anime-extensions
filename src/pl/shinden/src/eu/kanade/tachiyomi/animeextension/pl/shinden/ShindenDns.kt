@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pl.shinden
 
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,14 +40,14 @@ class ShindenDns : Dns {
         }
 
         if (addresses.isNotEmpty()) {
-            ShindenLog.d(tag, "Resolved $hostname -> ${addresses.first().hostAddress}")
+            ExtLog.d(tag, "Resolved $hostname -> ${addresses.first().hostAddress}")
             addresses
         } else {
-            ShindenLog.d(tag, "DoH returned no A records for $hostname, falling back to system")
+            ExtLog.d(tag, "DoH returned no A records for $hostname, falling back to system")
             Dns.SYSTEM.lookup(hostname)
         }
     } catch (e: Exception) {
-        ShindenLog.e(tag, "DoH failed for $hostname: ${e.message}, falling back to system", e)
+        ExtLog.e(tag, "DoH failed for $hostname: ${e.message}, falling back to system", e)
         Dns.SYSTEM.lookup(hostname)
     }
 }

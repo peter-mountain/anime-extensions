@@ -3,7 +3,7 @@ package aniyomi.lib.uqloadextractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.lib.autoUnpacker
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import keiyoushi.utils.bodyString
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -25,7 +25,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
             }
             val origin = "https://$host"
             val isUqloadIs = host.contains("uqload.is")
-            ShindenLog.d(tag, "Detected host: $host (isUqloadIs=$isUqloadIs)")
+            ExtLog.d(tag, "Detected host: $host (isUqloadIs=$isUqloadIs)")
 
             val requestHeaders = Headers.Builder().apply {
                 set("Referer", "$origin/")
@@ -43,46 +43,46 @@ class UqloadExtractor(private val client: OkHttpClient) {
                 handleUqloadIs(url, origin, requestHeaders)
             } else {
                 val fetched = client.newCall(GET(url, requestHeaders)).execute().bodyString()
-                ShindenLog.d(tag, "Fetched embed page: ${url.take(80)}... (length=${fetched.length})")
+                ExtLog.d(tag, "Fetched embed page: ${url.take(80)}... (length=${fetched.length})")
                 fetched
             }
 
             if (html == null) {
-                ShindenLog.e(tag, "Failed to get HTML content")
+                ExtLog.e(tag, "Failed to get HTML content")
                 return emptyList()
             }
 
             val unpacked = if (html.contains("eval(function(p,a,c,k,e")) {
-                ShindenLog.d(tag, "Found packed JS, unpacking...")
+                ExtLog.d(tag, "Found packed JS, unpacking...")
                 val result = autoUnpacker(html)
                 if (result != null) {
-                    ShindenLog.d(tag, "Unpacked JS length: ${result.length}")
+                    ExtLog.d(tag, "Unpacked JS length: ${result.length}")
                     result
                 } else {
-                    ShindenLog.e(tag, "autoUnpacker returned null")
+                    ExtLog.e(tag, "autoUnpacker returned null")
                     return emptyList()
                 }
             } else {
-                ShindenLog.d(tag, "No packed JS found, using raw HTML")
+                ExtLog.d(tag, "No packed JS found, using raw HTML")
                 html
             }
 
             val m3u8Url = extractSourceUrl(unpacked)
             if (m3u8Url == null) {
-                ShindenLog.e(tag, "No m3u8 source URL found in unpacked JS")
+                ExtLog.e(tag, "No m3u8 source URL found in unpacked JS")
                 val fallbackUrl = Pattern.compile("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*")
                     .matcher(unpacked)
                     .takeIf { it.find() }
                     ?.group(0)
                 if (fallbackUrl != null) {
-                    ShindenLog.d(tag, "Fallback m3u8 URL: $fallbackUrl")
+                    ExtLog.d(tag, "Fallback m3u8 URL: $fallbackUrl")
                     val quality = getResolution(client, fallbackUrl, requestHeaders)
                     videos.add(Video(fallbackUrl, "${prefix}Uqload - $quality", fallbackUrl, requestHeaders))
                 }
                 return videos
             }
 
-            ShindenLog.d(tag, "Extracted m3u8 URL: ${m3u8Url.take(120)}...")
+            ExtLog.d(tag, "Extracted m3u8 URL: ${m3u8Url.take(120)}...")
 
             if (m3u8Url.contains("master")) {
                 val subUrls = extractSubPlaylists(client, m3u8Url, requestHeaders)
@@ -97,7 +97,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
             val quality = getResolution(client, m3u8Url, requestHeaders)
             videos.add(Video(m3u8Url, "${prefix}Uqload - $quality", m3u8Url, requestHeaders))
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error: ${e.message}", e)
+            ExtLog.e(tag, "Error: ${e.message}", e)
         }
         return videos
     }
@@ -112,10 +112,10 @@ class UqloadExtractor(private val client: OkHttpClient) {
         // Extract file_code from URL path: /e/{code} or /e/{code}.html
         val fileCode = extractFileCodeFromUrl(url)
         if (fileCode == null) {
-            ShindenLog.e(tag, "uqload.is: could not extract file_code from URL: $url")
+            ExtLog.e(tag, "uqload.is: could not extract file_code from URL: $url")
             return null
         }
-        ShindenLog.d(tag, "uqload.is file_code=$fileCode (from URL)")
+        ExtLog.d(tag, "uqload.is file_code=$fileCode (from URL)")
 
         // POST to /dl
         val postBody = FormBody.Builder()
@@ -136,7 +136,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
         }.build()
 
         val postUrl = "$origin/dl"
-        ShindenLog.d(tag, "uqload.is POST $postUrl")
+        ExtLog.d(tag, "uqload.is POST $postUrl")
 
         val postResponse = client.newCall(
             okhttp3.Request.Builder()
@@ -146,13 +146,13 @@ class UqloadExtractor(private val client: OkHttpClient) {
                 .build(),
         ).execute()
 
-        ShindenLog.d(tag, "uqload.is POST response code=${postResponse.code}")
+        ExtLog.d(tag, "uqload.is POST response code=${postResponse.code}")
 
         val postHtml = postResponse.bodyString()
-        ShindenLog.d(tag, "uqload.is POST body length=${postHtml.length}")
+        ExtLog.d(tag, "uqload.is POST body length=${postHtml.length}")
 
         val setCookies = postResponse.headers("Set-Cookie")
-        ShindenLog.d(tag, "uqload.is Set-Cookie count=${setCookies.size}")
+        ExtLog.d(tag, "uqload.is Set-Cookie count=${setCookies.size}")
 
         return postHtml
     }
@@ -229,7 +229,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
                 results.add(quality to urls[i])
             }
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error extracting sub-playlists: ${e.message}")
+            ExtLog.e(tag, "Error extracting sub-playlists: ${e.message}")
         }
         return results
     }

@@ -1,6 +1,6 @@
 package aniyomi.lib.m3u8server
 
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -67,9 +67,9 @@ class M3u8HttpServer(
         try {
             super.start()
             isRunning = true
-            ShindenLog.d(tag, "M3U8 HTTP Server started on port $port")
+            ExtLog.d(tag, "M3U8 HTTP Server started on port $port")
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Failed to start server: ${e.message}")
+            ExtLog.e(tag, "Failed to start server: ${e.message}")
             throw e
         }
     }
@@ -77,7 +77,7 @@ class M3u8HttpServer(
     override fun stop() {
         super.stop()
         isRunning = false
-        ShindenLog.d(tag, "M3U8 HTTP Server stopped")
+        ExtLog.d(tag, "M3U8 HTTP Server stopped")
     }
 
     fun isRunning(): Boolean = isRunning
@@ -86,7 +86,7 @@ class M3u8HttpServer(
         val uri = session.uri
         val method = session.method
 
-        ShindenLog.d(tag, "Received request: $method $uri from ${session.remoteIpAddress}")
+        ExtLog.d(tag, "Received request: $method $uri from ${session.remoteIpAddress}")
 
         val response = when {
             uri.startsWith("/m3u8") -> handleM3u8Request(session)
@@ -96,12 +96,12 @@ class M3u8HttpServer(
             uri.startsWith("/health") -> handleHealthRequest()
 
             else -> {
-                ShindenLog.w(tag, "Unknown endpoint: $uri")
+                ExtLog.w(tag, "Unknown endpoint: $uri")
                 newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
             }
         }
 
-        ShindenLog.d(tag, "Response status: ${response.status}")
+        ExtLog.d(tag, "Response status: ${response.status}")
         return response
     }
 
@@ -112,27 +112,27 @@ class M3u8HttpServer(
         val fallbackCookies = session.parameters["cookies"]?.first()
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent, fallbackCookies)
 
-        ShindenLog.d(tag, "Processing M3U8 request for URL: $url")
-        ShindenLog.d(tag, "Headers: $headers")
+        ExtLog.d(tag, "Processing M3U8 request for URL: $url")
+        ExtLog.d(tag, "Headers: $headers")
         if (!fallbackCookies.isNullOrBlank()) {
-            ShindenLog.d(tag, "Forwarding cookies to CDN (${fallbackCookies.take(80)}...)")
+            ExtLog.d(tag, "Forwarding cookies to CDN (${fallbackCookies.take(80)}...)")
         }
 
         if (url.isNullOrBlank()) {
-            ShindenLog.w(tag, "Missing URL parameter in M3U8 request")
+            ExtLog.w(tag, "Missing URL parameter in M3U8 request")
             return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
         }
 
         return try {
-            ShindenLog.d(tag, "Starting M3U8 processing for: $url")
+            ExtLog.d(tag, "Starting M3U8 processing for: $url")
             val processedContent = runBlocking { processM3u8Content(url, headers, fallbackCookies) }
-            ShindenLog.d(tag, "M3U8 processing completed successfully, content length: ${processedContent.length}")
+            ExtLog.d(tag, "M3U8 processing completed successfully, content length: ${processedContent.length}")
             newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", processedContent)
         } catch (e: UpstreamStatusException) {
-            ShindenLog.w(tag, "Upstream HTTP ${e.code} for $url: ${e.message}")
+            ExtLog.w(tag, "Upstream HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error processing M3U8: ${e.message}", e)
+            ExtLog.e(tag, "Error processing M3U8: ${e.message}", e)
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
@@ -146,28 +146,28 @@ class M3u8HttpServer(
         val fallbackCookies = session.parameters["cookies"]?.first()
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent, fallbackCookies)
 
-        ShindenLog.d(tag, "Processing segment request for URL: $url (key=${keyUrl != null}, iv=${iv != null})")
-        ShindenLog.d(tag, "Headers: $headers")
+        ExtLog.d(tag, "Processing segment request for URL: $url (key=${keyUrl != null}, iv=${iv != null})")
+        ExtLog.d(tag, "Headers: $headers")
 
         if (url.isNullOrBlank()) {
-            ShindenLog.w(tag, "Missing URL parameter in segment request")
+            ExtLog.w(tag, "Missing URL parameter in segment request")
             return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
         }
 
         val hasAes = keyUrl != null && iv != null
         return try {
-            ShindenLog.d(tag, "Starting segment processing for: $url (aes=$hasAes)")
+            ExtLog.d(tag, "Starting segment processing for: $url (aes=$hasAes)")
             val segmentData = runBlocking {
                 processSegmentUrl(url, headers, keyUrl, iv)
             }
-            ShindenLog.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
+            ExtLog.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
             val inputStream = ByteArrayInputStream(segmentData)
             newChunkedResponse(Status.OK, "video/mp2t", inputStream)
         } catch (e: UpstreamStatusException) {
-            ShindenLog.w(tag, "Upstream segment HTTP ${e.code} for $url: ${e.message}")
+            ExtLog.w(tag, "Upstream segment HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error processing segment: ${e.message}", e)
+            ExtLog.e(tag, "Error processing segment: ${e.message}", e)
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
@@ -195,9 +195,9 @@ class M3u8HttpServer(
     }
 
     private fun handleHealthRequest(): Response {
-        ShindenLog.d(tag, "Health check requested")
+        ExtLog.d(tag, "Health check requested")
         val status = getHealthStatus()
-        ShindenLog.d(tag, "Health status: $status")
+        ExtLog.d(tag, "Health status: $status")
         return newFixedLengthResponse(Status.OK, MIME_PLAINTEXT, status)
     }
 
@@ -254,7 +254,7 @@ class M3u8HttpServer(
             }
         }
 
-        ShindenLog.d(tag, "Extracted headers (referer=${headers["referer"]?.take(80) ?: "none"}, ua=${headers["user-agent"]?.take(40) ?: "none"}, cookie=${headers.containsKey("cookie")})")
+        ExtLog.d(tag, "Extracted headers (referer=${headers["referer"]?.take(80) ?: "none"}, ua=${headers["user-agent"]?.take(40) ?: "none"}, cookie=${headers.containsKey("cookie")})")
         return headers
     }
 
@@ -283,23 +283,23 @@ class M3u8HttpServer(
      */
     private suspend fun processM3u8Content(url: String, headers: Map<String, String> = emptyMap(), fallbackCookies: String? = null): String = withContext(Dispatchers.IO) {
         try {
-            ShindenLog.d(tag, "Fetching M3U8 content from: $url with headers: $headers")
+            ExtLog.d(tag, "Fetching M3U8 content from: $url with headers: $headers")
             val m3u8Content = fetchM3u8Content(url, headers)
-            ShindenLog.d(tag, "Original M3U8 content length: ${m3u8Content.length}")
+            ExtLog.d(tag, "Original M3U8 content length: ${m3u8Content.length}")
 
             val referer = headers["referer"]
             val userAgent = headers["user-agent"]
             val cookies = fallbackCookies ?: headers["cookie"]
             val modifiedContent = modifyM3u8Content(m3u8Content, url, port, referer, userAgent, cookies)
-            ShindenLog.d(tag, "Modified M3U8 content length: ${modifiedContent.length}")
-            ShindenLog.d(tag, "M3U8 processing completed successfully")
+            ExtLog.d(tag, "Modified M3U8 content length: ${modifiedContent.length}")
+            ExtLog.d(tag, "M3U8 processing completed successfully")
 
             modifiedContent
         } catch (e: UpstreamStatusException) {
-            ShindenLog.w(tag, "Upstream ${e.code} propagating from processM3u8Content for $url")
+            ExtLog.w(tag, "Upstream ${e.code} propagating from processM3u8Content for $url")
             throw e
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error processing M3U8 URL: ${e.message}", e)
+            ExtLog.e(tag, "Error processing M3U8 URL: ${e.message}", e)
             throw UpstreamStatusException(503, url, "Error processing m3u8: ${e.message}", e)
         }
     }
@@ -319,30 +319,30 @@ class M3u8HttpServer(
         iv: String? = null,
     ): ByteArray = withContext(Dispatchers.IO) {
         try {
-            ShindenLog.d(tag, "Fetching segment from: $url with headers: $headers (aes=${keyUrl != null})")
+            ExtLog.d(tag, "Fetching segment from: $url with headers: $headers (aes=${keyUrl != null})")
             val rawSegment = fetchSegmentBytes(url, headers)
             val plaintext = if (keyUrl != null && iv != null) {
                 val keyBytes = fetchSegmentBytes(keyUrl, headers)
                 decryptAes128Cbc(rawSegment, keyBytes, iv).also {
-                    ShindenLog.d(tag, "AES-128 decrypted segment: ${rawSegment.size} → ${it.size} bytes")
+                    ExtLog.d(tag, "AES-128 decrypted segment: ${rawSegment.size} → ${it.size} bytes")
                 }
             } else {
                 rawSegment
             }
             val stripped = stripInterleavedJunk(plaintext)
-            ShindenLog.d(tag, "Segment processing completed, final size: ${stripped.size} bytes")
+            ExtLog.d(tag, "Segment processing completed, final size: ${stripped.size} bytes")
             stripped
         } catch (e: UpstreamStatusException) {
-            ShindenLog.w(tag, "Segment fetch upstream ${e.code} for $url")
+            ExtLog.w(tag, "Segment fetch upstream ${e.code} for $url")
             throw e
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error processing segment URL: ${e.message}", e)
+            ExtLog.e(tag, "Error processing segment URL: ${e.message}", e)
             throw UpstreamStatusException(503, url, "Error processing segment: ${e.message}", e)
         }
     }
 
     private suspend fun fetchSegmentBytes(url: String, headers: Map<String, String>): ByteArray = withContext(Dispatchers.IO) {
-        ShindenLog.d(tag, "Making HTTP request to fetch segment with headers: $headers")
+        ExtLog.d(tag, "Making HTTP request to fetch segment with headers: $headers")
 
         val requestBuilder = Request.Builder().url(url)
         headers.forEach { (key, value) ->
@@ -351,9 +351,9 @@ class M3u8HttpServer(
         val request = requestBuilder.build()
 
         upstreamClient.newCall(request).execute().use { response ->
-            ShindenLog.d(tag, "Segment HTTP response code: ${response.code}")
+            ExtLog.d(tag, "Segment HTTP response code: ${response.code}")
             if (!response.isSuccessful) {
-                ShindenLog.e(tag, "Failed to fetch segment, HTTP code: ${response.code}")
+                ExtLog.e(tag, "Failed to fetch segment, HTTP code: ${response.code}")
                 throw UpstreamStatusException(response.code, url, "Failed to fetch segment")
             }
             response.body.bytes()
@@ -362,14 +362,14 @@ class M3u8HttpServer(
 
     private fun stripInterleavedJunk(fullData: ByteArray): ByteArray {
         if (fullData.size > 50 * 1024 * 1024) {
-            ShindenLog.d(tag, "Segment too large for stripping (${fullData.size} bytes), skipping")
+            ExtLog.d(tag, "Segment too large for stripping (${fullData.size} bytes), skipping")
             return fullData
         }
         val skipRanges = AutoDetector.detectInterleavedSkips(fullData)
         if (skipRanges.isEmpty()) return fullData
         val strippedBytes = skipRanges.sumOf { it.last - it.first + 1 }
         val finalSize = fullData.size - strippedBytes
-        ShindenLog.d(tag, "Stripping ${skipRanges.size} interleaved junk block(s) ($strippedBytes bytes total), final size: $finalSize bytes")
+        ExtLog.d(tag, "Stripping ${skipRanges.size} interleaved junk block(s) ($strippedBytes bytes total), final size: $finalSize bytes")
         val stripped = ByteArrayOutputStream(finalSize.coerceAtLeast(0))
         var cursor = 0
         for (range in skipRanges) {
@@ -425,7 +425,7 @@ class M3u8HttpServer(
     }
 
     private suspend fun fetchM3u8Content(url: String, headers: Map<String, String> = emptyMap()): String = withContext(Dispatchers.IO) {
-        ShindenLog.d(tag, "Making HTTP request to fetch M3U8 content with headers: $headers")
+        ExtLog.d(tag, "Making HTTP request to fetch M3U8 content with headers: $headers")
 
         val requestBuilder = Request.Builder().url(url)
         headers.forEach { (key, value) ->
@@ -435,20 +435,20 @@ class M3u8HttpServer(
 
         try {
             upstreamClient.newCall(request).execute().use { response ->
-                ShindenLog.d(tag, "M3U8 HTTP response code: ${response.code}")
+                ExtLog.d(tag, "M3U8 HTTP response code: ${response.code}")
 
                 if (!response.isSuccessful) {
-                    ShindenLog.e(tag, "Failed to fetch M3U8 content, HTTP code: ${response.code}")
+                    ExtLog.e(tag, "Failed to fetch M3U8 content, HTTP code: ${response.code}")
                     throw UpstreamStatusException(response.code, url, "Failed to fetch m3u8")
                 }
 
                 val content = response.body.string()
                 if (content.isBlank()) {
-                    ShindenLog.e(tag, "Empty M3U8 response body")
+                    ExtLog.e(tag, "Empty M3U8 response body")
                     throw UpstreamStatusException(502, url, "Empty response body")
                 }
 
-                ShindenLog.d(tag, "Successfully fetched M3U8 content")
+                ExtLog.d(tag, "Successfully fetched M3U8 content")
                 content
             }
         } catch (primary: UpstreamStatusException) {
@@ -458,27 +458,27 @@ class M3u8HttpServer(
             // a typed exception here (lib stays agnostic of cloudflareinterceptor).
             // Use the fallback client when supplied — header-gated CDNs may
             // return 200 once the WebView detour is bypassed.
-            ShindenLog.w(tag, "Primary client failed for $url: ${primary.javaClass.simpleName}: ${primary.message}; ${if (fallbackClient != null) "attempting fallback" else "no fallback configured"}")
+            ExtLog.w(tag, "Primary client failed for $url: ${primary.javaClass.simpleName}: ${primary.message}; ${if (fallbackClient != null) "attempting fallback" else "no fallback configured"}")
             val fb = fallbackClient ?: throw UpstreamStatusException(503, url, "Primary client failed: ${primary.message}", primary)
 
             try {
                 fb.newCall(request).execute().use { response ->
-                    ShindenLog.d(tag, "M3U8 fallback HTTP response code: ${response.code}")
+                    ExtLog.d(tag, "M3U8 fallback HTTP response code: ${response.code}")
                     if (!response.isSuccessful) {
-                        ShindenLog.e(tag, "Fallback also failed for M3U8, HTTP code: ${response.code}")
+                        ExtLog.e(tag, "Fallback also failed for M3U8, HTTP code: ${response.code}")
                         throw UpstreamStatusException(response.code, url, "Fallback failed: ${primary.message}", primary)
                     }
                     val content = response.body.string()
                     if (content.isBlank()) {
                         throw UpstreamStatusException(502, url, "Empty fallback body", primary)
                     }
-                    ShindenLog.d(tag, "Fallback fetch succeeded, content length: ${content.length}")
+                    ExtLog.d(tag, "Fallback fetch succeeded, content length: ${content.length}")
                     content
                 }
             } catch (fb: UpstreamStatusException) {
                 throw fb
             } catch (fb: Exception) {
-                ShindenLog.e(tag, "Fallback client threw: ${fb.javaClass.simpleName}: ${fb.message}", fb)
+                ExtLog.e(tag, "Fallback client threw: ${fb.javaClass.simpleName}: ${fb.message}", fb)
                 throw UpstreamStatusException(503, url, "Both primary and fallback failed (primary=${primary.message}; fallback=${fb.message})", primary)
             }
         }
@@ -531,7 +531,7 @@ class M3u8HttpServer(
         userAgent: String? = null,
         cookies: String? = null,
     ): String {
-        ShindenLog.d(tag, "Modifying M3U8 content for server port: $serverPort (referer=${referer?.take(80) ?: "none"})")
+        ExtLog.d(tag, "Modifying M3U8 content for server port: $serverPort (referer=${referer?.take(80) ?: "none"})")
         val lines = content.lines()
         val modifiedLines = mutableListOf<String>()
         var segmentCount = 0
@@ -564,7 +564,7 @@ class M3u8HttpServer(
                                     url = resolvedKeyUrl,
                                     iv = iv?.let { it.normalizeHlsIv() } ?: segmentSequence.toHlsIv(),
                                 )
-                                ShindenLog.d(tag, "AES-128 detected, intercepting key at proxy: $resolvedKeyUrl (iv=${currentKey!!.iv})")
+                                ExtLog.d(tag, "AES-128 detected, intercepting key at proxy: $resolvedKeyUrl (iv=${currentKey!!.iv})")
                             }
                         }
 
@@ -602,7 +602,7 @@ class M3u8HttpServer(
             }
         }
 
-        ShindenLog.d(tag, "Modified M3U8 content: $segmentCount segments redirected, ${if (currentKey != null) "AES-128 keys proxied" else "no AES keys"}")
+        ExtLog.d(tag, "Modified M3U8 content: $segmentCount segments redirected, ${if (currentKey != null) "AES-128 keys proxied" else "no AES keys"}")
         return modifiedLines.joinToString("\n")
     }
 

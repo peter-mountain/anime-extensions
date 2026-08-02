@@ -2,7 +2,7 @@ package aniyomi.lib.cdaextractor
 
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,7 +18,7 @@ class CdaExtractor(private val client: OkHttpClient) {
     private val json: Json by injectLazy()
 
     fun getVideosFromUrl(url: String, headers: Headers, prefix: String): List<Video> {
-        ShindenLog.d(TAG, "=== CDA START === url=$url")
+        ExtLog.d(TAG, "=== CDA START === url=$url")
 
         val embedHeaders = headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -27,42 +27,42 @@ class CdaExtractor(private val client: OkHttpClient) {
 
         val response = client.newCall(GET(url, headers = embedHeaders)).execute()
         val bodyStr = response.body?.string() ?: ""
-        ShindenLog.d(TAG, "CDA: embed code=${response.code} length=${bodyStr.length}")
+        ExtLog.d(TAG, "CDA: embed code=${response.code} length=${bodyStr.length}")
 
         if (bodyStr.length < 100) {
-            ShindenLog.e(TAG, "CDA: embed body too short (${bodyStr.length} chars)")
+            ExtLog.e(TAG, "CDA: embed body too short (${bodyStr.length} chars)")
             return emptyList()
         }
 
         val document = org.jsoup.Jsoup.parse(bodyStr, url)
 
         if (document.toString().contains("został usunięty")) {
-            ShindenLog.e(TAG, "CDA: video DELETED by owner")
+            ExtLog.e(TAG, "CDA: video DELETED by owner")
             return emptyList()
         }
 
         val playerDataEl = document.selectFirst("div[player_data]")
         if (playerDataEl == null) {
-            ShindenLog.e(TAG, "CDA: div[player_data] NOT FOUND")
+            ExtLog.e(TAG, "CDA: div[player_data] NOT FOUND")
             return emptyList()
         }
 
         val playerDataStr = playerDataEl.attr("player_data")
         if (playerDataStr.isNullOrBlank()) {
-            ShindenLog.e(TAG, "CDA: player_data is EMPTY")
+            ExtLog.e(TAG, "CDA: player_data is EMPTY")
             return emptyList()
         }
 
         val data = try {
             json.decodeFromString<PlayerData>(playerDataStr)
         } catch (e: Exception) {
-            ShindenLog.e(TAG, "CDA: PARSE FAILED: ${e.message}")
+            ExtLog.e(TAG, "CDA: PARSE FAILED: ${e.message}")
             return emptyList()
         }
 
-        ShindenLog.d(TAG, "CDA: id=${data.video.id} file=${data.video.file.take(60)} quality=${data.video.quality}")
-        ShindenLog.d(TAG, "CDA: manifest=${data.video.manifestApple}")
-        ShindenLog.d(TAG, "CDA: manifest_dash=${data.video.manifest}")
+        ExtLog.d(TAG, "CDA: id=${data.video.id} file=${data.video.file.take(60)} quality=${data.video.quality}")
+        ExtLog.d(TAG, "CDA: manifest=${data.video.manifestApple}")
+        ExtLog.d(TAG, "CDA: manifest_dash=${data.video.manifest}")
 
         val cdaHeaders = Headers.Builder()
             .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
@@ -73,13 +73,13 @@ class CdaExtractor(private val client: OkHttpClient) {
 
         // HLS master manifest — adaptive quality (ExoPlayer picks best stream)
         if (!data.video.manifestApple.isNullOrBlank()) {
-            ShindenLog.d(TAG, "CDA: HLS auto -> ${data.video.manifestApple}")
+            ExtLog.d(TAG, "CDA: HLS auto -> ${data.video.manifestApple}")
             results.add(Video(data.video.manifestApple, "${prefix}cda.pl - auto", data.video.manifestApple, cdaHeaders))
         }
 
         // DASH manifest — highest quality
         if (!data.video.manifest.isNullOrBlank() && data.video.manifest != data.video.manifestApple) {
-            ShindenLog.d(TAG, "CDA: DASH -> ${data.video.manifest}")
+            ExtLog.d(TAG, "CDA: DASH -> ${data.video.manifest}")
             results.add(Video(data.video.manifest, "${prefix}cda.pl - 1080p", data.video.manifest, cdaHeaders))
         }
 
@@ -129,11 +129,11 @@ class CdaExtractor(private val client: OkHttpClient) {
                     if (body.isNotBlank()) {
                         val parsed = json.decodeFromString<PostResponse>(body)
                         val label = qualityLabels[key] ?: key
-                        ShindenLog.d(TAG, "CDA: videoGetLink $key -> ${parsed.result.resp}")
+                        ExtLog.d(TAG, "CDA: videoGetLink $key -> ${parsed.result.resp}")
                         results.add(Video(parsed.result.resp, "${prefix}cda.pl - $label", parsed.result.resp, cdaHeaders))
                     }
                 } catch (e: Exception) {
-                    ShindenLog.d(TAG, "CDA: videoGetLink $key FAILED: ${e.message}")
+                    ExtLog.d(TAG, "CDA: videoGetLink $key FAILED: ${e.message}")
                 }
             }
         }
@@ -142,14 +142,14 @@ class CdaExtractor(private val client: OkHttpClient) {
         if (data.video.file.isNotBlank() && results.isEmpty()) {
             try {
                 val decryptedUrl = decryptFile(data.video.file)
-                ShindenLog.d(TAG, "CDA: legacy decrypted -> $decryptedUrl")
+                ExtLog.d(TAG, "CDA: legacy decrypted -> $decryptedUrl")
                 results.add(Video(decryptedUrl, "${prefix}cda.pl - ${data.video.quality}", decryptedUrl, cdaHeaders))
             } catch (e: Exception) {
-                ShindenLog.e(TAG, "CDA: DECRYPT FAILED: ${e.message}")
+                ExtLog.e(TAG, "CDA: DECRYPT FAILED: ${e.message}")
             }
         }
 
-        ShindenLog.d(TAG, "=== CDA END === returning ${results.size} videos")
+        ExtLog.d(TAG, "=== CDA END === returning ${results.size} videos")
         return results
     }
 

@@ -38,7 +38,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -185,7 +185,7 @@ class Shinden :
                     if (success) {
                         isLoggedIn = true
                     } else {
-                        ShindenLog.w(TAG, "Login failed — clearing saved cookies")
+                        ExtLog.w(TAG, "Login failed — clearing saved cookies")
                         cookiePrefs.edit().remove("cookies").apply()
                         (client.cookieJar as? PersistentCookieJar)?.clear()
                     }
@@ -201,7 +201,7 @@ class Shinden :
             GET("$baseUrl/main/0/login", headers),
         ).execute()
         getLogin.close()
-        ShindenLog.d(TAG, "login step1 GET: http=${getLogin.code}")
+        ExtLog.d(TAG, "login step1 GET: http=${getLogin.code}")
 
         // Step 2: POST login form
         val body = FormBody.Builder()
@@ -226,10 +226,10 @@ class Shinden :
         val postCode = postResponse.code
         val postBody = postResponse.body?.string() ?: ""
         postResponse.close()
-        ShindenLog.d(TAG, "login step2 POST: http=$postCode body_len=${postBody.length}")
+        ExtLog.d(TAG, "login step2 POST: http=$postCode body_len=${postBody.length}")
 
         if (postCode !in 200..399) {
-            ShindenLog.w(TAG, "login failed: HTTP $postCode")
+            ExtLog.w(TAG, "login failed: HTTP $postCode")
             return false
         }
 
@@ -240,13 +240,13 @@ class Shinden :
         val mainCode = mainResponse.code
         val mainBody = mainResponse.body?.string() ?: ""
         mainResponse.close()
-        ShindenLog.d(TAG, "login step3 GET main: http=$mainCode body_len=${mainBody.length}")
+        ExtLog.d(TAG, "login step3 GET main: http=$mainCode body_len=${mainBody.length}")
 
         // Verify: check _Storage.userId exists (= logged in)
         val userIdMatch = Regex("""_Storage\.userId\s*=\s*(\d+)""").find(mainBody)
         if (userIdMatch != null) {
             val userId = userIdMatch.groupValues[1]
-            ShindenLog.d(TAG, "login OK: userId=$userId")
+            ExtLog.d(TAG, "login OK: userId=$userId")
             preferences.edit()
                 .putString("shinden_user_id", userId)
                 .apply()
@@ -256,13 +256,13 @@ class Shinden :
                 ?: Regex("""<title>([^<]+)\s*\(użytkownik\)""").find(mainBody)
             val extractedUsername = usernameMatch?.groupValues?.get(1)?.trim() ?: username
             preferences.edit().putString("shinden_display_name", extractedUsername).apply()
-            ShindenLog.d(TAG, "login OK: userId=$userId displayName=$extractedUsername")
+            ExtLog.d(TAG, "login OK: userId=$userId displayName=$extractedUsername")
             return true
         }
 
         // Fallback: check if page has user menu (indicates logged in)
         val hasUserMenu = mainBody.contains("user-panel") || mainBody.contains("logout")
-        ShindenLog.d(TAG, "login fallback: userId not found, hasUserMenu=$hasUserMenu")
+        ExtLog.d(TAG, "login fallback: userId not found, hasUserMenu=$hasUserMenu")
         return hasUserMenu
     }
 
@@ -350,22 +350,22 @@ class Shinden :
                     f.state.forEach { it.state = false }
                 }
                 filters.filterIsInstance<SortFilter>().firstOrNull()?.let { it.state = 0 }
-                ShindenLog.d(TAG, "my anime: reset StatusFilter, GenreFilter, SortFilter (unsupported for list)")
+                ExtLog.d(TAG, "my anime: reset StatusFilter, GenreFilter, SortFilter (unsupported for list)")
 
                 val firstStatus = myAnimeRemainingStatuses.firstOrNull()
                 if (firstStatus != null) {
                     myAnimeRemainingStatuses = myAnimeRemainingStatuses.drop(1)
                     val url = "https://lista.shinden.pl/api/userlist/$userId/anime/$firstStatus"
-                    ShindenLog.d(TAG, "my anime server-side: fetching status=$firstStatus, remaining=$myAnimeRemainingStatuses")
+                    ExtLog.d(TAG, "my anime server-side: fetching status=$firstStatus, remaining=$myAnimeRemainingStatuses")
                     return GET(url, headers)
                 } else {
                     // All statuses selected = no filter, fetch everything
                     val url = "https://lista.shinden.pl/api/userlist/$userId/anime"
-                    ShindenLog.d(TAG, "my anime server-side: fetching all (no status filter)")
+                    ExtLog.d(TAG, "my anime server-side: fetching all (no status filter)")
                     return GET(url, headers)
                 }
             } else {
-                ShindenLog.w(TAG, "Moje anime: no userId, returning empty list")
+                ExtLog.w(TAG, "Moje anime: no userId, returning empty list")
                 myAnimeNoUserId = true
             }
         }
@@ -467,7 +467,7 @@ class Shinden :
                 val nextStatus = myAnimeRemainingStatuses.first()
                 myAnimeRemainingStatuses = myAnimeRemainingStatuses.drop(1)
                 val url = "https://lista.shinden.pl/api/userlist/$userId/anime/$nextStatus"
-                ShindenLog.d(TAG, "my anime server-side: merging status=$nextStatus, accumulated=${myAnimePendingResults.size}")
+                ExtLog.d(TAG, "my anime server-side: merging status=$nextStatus, accumulated=${myAnimePendingResults.size}")
                 val nextResponse = client.newCall(GET(url, headers)).execute()
                 val nextBody = nextResponse.peekBody(2048).string()
                 if (nextBody.trimStart().startsWith("{") && nextBody.contains("\"result\"")) {
@@ -483,7 +483,7 @@ class Shinden :
                 val result = myAnimePendingResults.toList()
                 myAnimePendingResults.clear()
                 val filtered = applyMyAnimeStandardFilters(result)
-                ShindenLog.d(TAG, "my anime server-side: final merge total=${result.size} filtered=${filtered.size}")
+                ExtLog.d(TAG, "my anime server-side: final merge total=${result.size} filtered=${filtered.size}")
                 AnimesPage(filtered, false)
             } else {
                 val filtered = applyMyAnimeStandardFilters(entries)
@@ -626,8 +626,8 @@ class Shinden :
     private val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client, dns = ShindenDns()) }
 
     override fun videoListParse(response: Response): List<Video> {
-        ShindenLog.enabled = preferences.getBoolean("verbose_logging", false)
-        ShindenLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
+        ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
+        ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
         val document = response.asJsoup()
         val bodyText = document.outerHtml()
 
@@ -638,7 +638,7 @@ class Shinden :
             ?: fallbackAuth
 
         val sources = parseSources(document, authCode)
-        ShindenLog.d(TAG, "parsed ${sources.size} sources")
+        ExtLog.d(TAG, "parsed ${sources.size} sources")
 
         if (sources.isEmpty()) {
             val snippet = bodyText.take(300).replace("\n", " ")
@@ -653,7 +653,7 @@ class Shinden :
                 val loadClients = sources.map { (_, loadUrl) ->
                     loadUrl to createPerCallClient()
                 }
-                ShindenLog.d(TAG, "batch: created ${loadClients.size} per-call clients")
+                ExtLog.d(TAG, "batch: created ${loadClients.size} per-call clients")
 
                 // ===== BATCH PHASE 2: fire ALL player_load in parallel =====
                 loadClients.map { (loadUrl, client) ->
@@ -662,16 +662,16 @@ class Shinden :
                             val r = client.newCall(GET(loadUrl, headers)).execute()
                             val code = r.code
                             r.close()
-                            ShindenLog.d(TAG, "batch player_load http=$code for $loadUrl")
+                            ExtLog.d(TAG, "batch player_load http=$code for $loadUrl")
                         }.onFailure {
-                            ShindenLog.w(TAG, "batch player_load FAILED: $loadUrl — ${it.message}")
+                            ExtLog.w(TAG, "batch player_load FAILED: $loadUrl — ${it.message}")
                         }
                     }
                 }.awaitAll()
-                ShindenLog.d(TAG, "batch: all ${loadClients.size} player_load done in ${System.currentTimeMillis() - t0}ms")
+                ExtLog.d(TAG, "batch: all ${loadClients.size} player_load done in ${System.currentTimeMillis() - t0}ms")
 
                 // ===== BATCH PHASE 3: single sleep(2000) =====
-                ShindenLog.d(TAG, "batch: sleep(2000) after ${loadClients.size} player_loads")
+                ExtLog.d(TAG, "batch: sleep(2000) after ${loadClients.size} player_loads")
                 Thread.sleep(2000)
 
                 // ===== BATCH PHASE 4: player_show sequential with stagger =====
@@ -683,15 +683,15 @@ class Shinden :
                     if (i > 0) Thread.sleep(800)
                     val resolved = runCatching {
                         val r = client.newCall(GET(showUrl, headers)).execute()
-                        ShindenLog.d(TAG, "batch player_show http=${r.code} for $loadUrl")
+                        ExtLog.d(TAG, "batch player_show http=${r.code} for $loadUrl")
                         val doc = r.asJsoup()
                         val raw = doc.selectFirst("iframe[src]")?.attr("src")
                             ?: doc.selectFirst("a[href]")?.attr("href")
                         raw?.let { if (it.startsWith("//")) "https:$it" else it }
                     }.onFailure {
-                        ShindenLog.w(TAG, "batch player_show FAILED: $showUrl — ${it.message}")
+                        ExtLog.w(TAG, "batch player_show FAILED: $showUrl — ${it.message}")
                     }.getOrNull()
-                    ShindenLog.d(TAG, "batch player_show resolved: $resolved for $loadUrl")
+                    ExtLog.d(TAG, "batch player_show resolved: $resolved for $loadUrl")
                     embedUrlMap[loadUrl] = resolved
                     if (resolved == null) {
                         failedClients.add(loadUrl to client)
@@ -702,7 +702,7 @@ class Shinden :
                     val sleepStr = (preferences.getString("sequential_retry_sleep", "")?.trim() ?: "").replace(",", ".")
                     val seqSleepMs = (sleepStr.toDoubleOrNull() ?: 0.0) * 1000.0
                     val seqRetry = seqSleepMs > 0
-                    ShindenLog.d(TAG, "retry: ${failedClients.size} failed, mode=${if (seqRetry) "sequential(${seqSleepMs.toLong()}ms)" else "stagger"}")
+                    ExtLog.d(TAG, "retry: ${failedClients.size} failed, mode=${if (seqRetry) "sequential(${seqSleepMs.toLong()}ms)" else "stagger"}")
                     if (seqRetry) {
                         // Sequential retry: player_load → sleep(3500) → player_show for each
                         for ((j, pair) in failedClients.withIndex()) {
@@ -710,21 +710,21 @@ class Shinden :
                             val loadUrl2 = loadUrl
                             val showUrl = loadUrl2.replace("player_load", "player_show") + "&width=0&height=-1"
                             val resolved = runCatching {
-                                ShindenLog.d(TAG, "seq retry: player_load $loadUrl2")
+                                ExtLog.d(TAG, "seq retry: player_load $loadUrl2")
                                 val rLoad = client.newCall(GET(loadUrl2, headers)).execute()
                                 rLoad.close()
-                                ShindenLog.d(TAG, "seq retry: sleep(${seqSleepMs.toLong()}ms)")
+                                ExtLog.d(TAG, "seq retry: sleep(${seqSleepMs.toLong()}ms)")
                                 Thread.sleep(seqSleepMs.toLong())
                                 val r = client.newCall(GET(showUrl, headers)).execute()
-                                ShindenLog.d(TAG, "seq retry: player_show http=${r.code} for $loadUrl2")
+                                ExtLog.d(TAG, "seq retry: player_show http=${r.code} for $loadUrl2")
                                 val doc = r.asJsoup()
                                 val raw = doc.selectFirst("iframe[src]")?.attr("src")
                                     ?: doc.selectFirst("a[href]")?.attr("href")
                                 raw?.let { if (it.startsWith("//")) "https:$it" else it }
                             }.onFailure {
-                                ShindenLog.w(TAG, "seq retry FAILED: $loadUrl2 — ${it.message}")
+                                ExtLog.w(TAG, "seq retry FAILED: $loadUrl2 — ${it.message}")
                             }.getOrNull()
-                            ShindenLog.d(TAG, "seq retry resolved: $resolved for $loadUrl2")
+                            ExtLog.d(TAG, "seq retry resolved: $resolved for $loadUrl2")
                             if (resolved != null) embedUrlMap[loadUrl2] = resolved
                         }
                     } else {
@@ -736,21 +736,21 @@ class Shinden :
                             val showUrl = loadUrl.replace("player_load", "player_show") + "&width=0&height=-1"
                             val resolved = runCatching {
                                 val r = client.newCall(GET(showUrl, headers)).execute()
-                                ShindenLog.d(TAG, "retry player_show http=${r.code} for $loadUrl")
+                                ExtLog.d(TAG, "retry player_show http=${r.code} for $loadUrl")
                                 val doc = r.asJsoup()
                                 val raw = doc.selectFirst("iframe[src]")?.attr("src")
                                     ?: doc.selectFirst("a[href]")?.attr("href")
                                 raw?.let { if (it.startsWith("//")) "https:$it" else it }
                             }.onFailure {
-                                ShindenLog.w(TAG, "retry player_show FAILED: $showUrl — ${it.message}")
+                                ExtLog.w(TAG, "retry player_show FAILED: $showUrl — ${it.message}")
                             }.getOrNull()
-                            ShindenLog.d(TAG, "retry player_show resolved: $resolved for $loadUrl")
+                            ExtLog.d(TAG, "retry player_show resolved: $resolved for $loadUrl")
                             if (resolved != null) embedUrlMap[loadUrl] = resolved
                         }
                     }
-                    ShindenLog.d(TAG, "retry: recovered ${failedClients.count { embedUrlMap[it.first] != null }} of ${failedClients.size}")
+                    ExtLog.d(TAG, "retry: recovered ${failedClients.count { embedUrlMap[it.first] != null }} of ${failedClients.size}")
                 }
-                ShindenLog.d(TAG, "batch: all ${embedUrlMap.size} player_show done in ${System.currentTimeMillis() - t0}ms total")
+                ExtLog.d(TAG, "batch: all ${embedUrlMap.size} player_show done in ${System.currentTimeMillis() - t0}ms total")
 
                 // ===== BATCH PHASE 5: extract videos in parallel =====
                 sources.map { (meta, loadUrl) ->
@@ -758,11 +758,11 @@ class Shinden :
                         withTimeoutOrNull(30_000L) {
                             try {
                                 val (host, quality, audio, subs, subsAuthor) = meta
-                                ShindenLog.d(TAG, ">>> source: host=$host quality=$quality audio=$audio subs=$subs")
+                                ExtLog.d(TAG, ">>> source: host=$host quality=$quality audio=$audio subs=$subs")
 
                                 val embedUrl = embedUrlMap[loadUrl]
                                     ?: return@withTimeoutOrNull listOf(debugVideo("$host — resolveEmbedUrl zwrócił null"))
-                                ShindenLog.d(TAG, "embedUrl RESOLVED: $embedUrl")
+                                ExtLog.d(TAG, "embedUrl RESOLVED: $embedUrl")
                                 val prefix = buildPrefix(audio, subs)
 
                                 val embedHost = runCatching { embedUrl.toHttpUrl().host }.getOrDefault("?")
@@ -772,7 +772,7 @@ class Shinden :
                                 if (skipDomains.isNotBlank()) {
                                     val skipList = skipDomains.split(",").map { it.trim().lowercase() }
                                     if (skipList.any { embedHost.lowercase().contains(it) }) {
-                                        ShindenLog.d(TAG, "SKIP domain: $embedHost matched skip_domain list")
+                                        ExtLog.d(TAG, "SKIP domain: $embedHost matched skip_domain list")
                                         return@withTimeoutOrNull emptyList()
                                     }
                                 }
@@ -857,19 +857,19 @@ class Shinden :
                                 }
 
                                 if (preferences.getBoolean("verbose_logging", false)) {
-                                    ShindenLog.d(TAG, "host=$host -> ${mapped.size} videos [verbose: embedHost=$embedHost extractor=$extractorName]")
+                                    ExtLog.d(TAG, "host=$host -> ${mapped.size} videos [verbose: embedHost=$embedHost extractor=$extractorName]")
                                 } else {
-                                    ShindenLog.d(TAG, "host=$host -> ${mapped.size} videos")
+                                    ExtLog.d(TAG, "host=$host -> ${mapped.size} videos")
                                 }
                                 mapped.ifEmpty {
                                     listOf(debugVideo("$host $quality — embedUrl=$embedUrl ale ekstraktor zwrócił 0 wideo"))
                                 }
                             } catch (e: Throwable) {
-                                ShindenLog.e(TAG, "source error: ${e.message}", e)
+                                ExtLog.e(TAG, "source error: ${e.message}", e)
                                 listOf(debugVideo("Error: ${e.message?.take(200)}"))
                             }
                         } ?: run {
-                            ShindenLog.w(TAG, "source timed out: $loadUrl")
+                            ExtLog.w(TAG, "source timed out: $loadUrl")
                             emptyList<Video>()
                         }
                     }
@@ -884,9 +884,9 @@ class Shinden :
                 processed
             }
             if (preferences.getBoolean("verbose_logging", false)) {
-                ShindenLog.d(TAG, "=== DONE: ${processed.size} videos total (showEmpty=$showEmpty, filtered=${filtered.size}) ===")
+                ExtLog.d(TAG, "=== DONE: ${processed.size} videos total (showEmpty=$showEmpty, filtered=${filtered.size}) ===")
             } else {
-                ShindenLog.d(TAG, "=== DONE: ${filtered.size} videos total ===")
+                ExtLog.d(TAG, "=== DONE: ${filtered.size} videos total ===")
             }
             filtered
         }
@@ -902,7 +902,7 @@ class Shinden :
 
     private fun parseSources(document: org.jsoup.nodes.Document, authCode: String): List<Pair<SourceMeta, String>> {
         val jsonButtons = document.select(".ep-buttons a[data-episode]")
-        ShindenLog.d(TAG, "jsonButtons=${jsonButtons.size}")
+        ExtLog.d(TAG, "jsonButtons=${jsonButtons.size}")
         if (jsonButtons.isNotEmpty()) {
             return jsonButtons.mapNotNull { a ->
                 runCatching {
@@ -933,7 +933,7 @@ class Shinden :
 
         val section = document.selectFirst("section.box.episode-player-list")
         val rows = section?.select("tr") ?: emptyList()
-        ShindenLog.d(TAG, "table fallback: section=${section != null} rows=${rows.size}")
+        ExtLog.d(TAG, "table fallback: section=${section != null} rows=${rows.size}")
         if (rows.size < 2) return emptyList()
 
         val vidIdRegex = Regex("""data_(.*?)""")
@@ -989,7 +989,7 @@ class Shinden :
         .build()
 
     private fun resolveEmbedUrl(loadUrl: String): String? = runCatching {
-        ShindenLog.d(TAG, "resolveEmbedUrl START loadUrl=$loadUrl")
+        ExtLog.d(TAG, "resolveEmbedUrl START loadUrl=$loadUrl")
 
         val perCallClient = network.client.newBuilder()
             .connectionPool(okhttp3.ConnectionPool())
@@ -1013,25 +1013,25 @@ class Shinden :
             .build()
 
         val r1 = perCallClient.newCall(GET(loadUrl, headers)).execute()
-        ShindenLog.d(TAG, "player_load http=${r1.code}")
+        ExtLog.d(TAG, "player_load http=${r1.code}")
         r1.close()
         Thread.sleep(2000)
 
         val showUrl = loadUrl.replace("player_load", "player_show") + "&width=0&height=-1"
         val r2 = perCallClient.newCall(GET(showUrl, headers)).execute()
-        ShindenLog.d(TAG, "player_show http=${r2.code}")
+        ExtLog.d(TAG, "player_show http=${r2.code}")
         val doc = r2.asJsoup()
 
         val raw = doc.selectFirst("iframe[src]")?.attr("src")
             ?: doc.selectFirst("a[href]")?.attr("href")
-        ShindenLog.d(TAG, "raw=$raw")
+        ExtLog.d(TAG, "raw=$raw")
         if (raw == null) return@runCatching null
 
         val resolved = if (raw.startsWith("//")) "https:$raw" else raw
-        ShindenLog.d(TAG, "resolveEmbedUrl RESOLVED: $resolved")
+        ExtLog.d(TAG, "resolveEmbedUrl RESOLVED: $resolved")
         resolved
     }.getOrElse {
-        ShindenLog.e(TAG, "resolveEmbedUrl EXCEPTION: ${it.message}", it)
+        ExtLog.e(TAG, "resolveEmbedUrl EXCEPTION: ${it.message}", it)
         null
     }
 
@@ -1122,10 +1122,10 @@ class Shinden :
                 }
             }
 
-            ShindenLog.d(TAG, "my anime: ${entries.size} items (filtered from ${items.length()})")
+            ExtLog.d(TAG, "my anime: ${entries.size} items (filtered from ${items.length()})")
             entries
         } catch (e: Exception) {
-            ShindenLog.e(TAG, "my anime parse error: ${e.message}", e)
+            ExtLog.e(TAG, "my anime parse error: ${e.message}", e)
             emptyList()
         }
     }

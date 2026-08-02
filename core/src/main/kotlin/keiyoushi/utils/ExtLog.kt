@@ -2,7 +2,7 @@ package keiyoushi.utils
 
 import android.util.Log
 
-object ShindenLog {
+object ExtLog {
     var enabled = false
 
     fun d(tag: String, msg: String) {

@@ -4,7 +4,7 @@ import android.util.Base64
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
@@ -40,7 +40,7 @@ class LycorisCafeExtractor(private val client: OkHttpClient) {
             // Try direct links from primarySource first (no API needed)
             val primary = episode.episodeInfo.primarySource
             if (primary != null) {
-                ShindenLog.d(tag, "Found primarySource, using direct links")
+                ExtLog.d(tag, "Found primarySource, using direct links")
                 primary.FHD?.let { videos.add(Video(it, "${prefix}lycoris.cafe - 1080p", it)) }
                 primary.HD?.let { videos.add(Video(it, "${prefix}lycoris.cafe - 720p", it)) }
                 primary.SD?.let { videos.add(Video(it, "${prefix}lycoris.cafe - 480p", it)) }
@@ -48,7 +48,7 @@ class LycorisCafeExtractor(private val client: OkHttpClient) {
             }
 
             // Fallback: decrypt API
-            ShindenLog.d(tag, "No primarySource, using decrypt API for episodeId=${episode.episodeInfo.id}")
+            ExtLog.d(tag, "No primarySource, using decrypt API for episodeId=${episode.episodeInfo.id}")
             val linkList = fetchAndDecodeVideo(episode.episodeInfo.id.toString())
 
             linkList.FHD?.let { videos.add(Video(it, "${prefix}lycoris.cafe - 1080p", it)) }
@@ -57,7 +57,7 @@ class LycorisCafeExtractor(private val client: OkHttpClient) {
             linkList.Source?.let { videos.add(Video(it, "${prefix}lycoris.cafe - Source", it)) }
             linkList.SourceMKV?.let { videos.add(Video(it, "${prefix}lycoris.cafe - SourceMKV", it)) }
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Error: ${e.message}", e)
+            ExtLog.e(tag, "Error: ${e.message}", e)
         }
 
         return videos

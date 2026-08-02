@@ -11,7 +11,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -52,7 +52,14 @@ object ShindenLoginWebView {
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     request: android.webkit.WebResourceRequest?,
-                ): Boolean = false
+                ): Boolean {
+                    val url = request?.url?.toString() ?: return false
+                    if (url.startsWith("https://shinden.pl")) {
+                        view?.loadUrl(url, emptyMap())
+                        return true
+                    }
+                    return false
+                }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (isLoggedIn && view != null && savedUserId != null && savedDisplayName != null) {
@@ -159,7 +166,7 @@ object ShindenLoginWebView {
                         .build(),
                 ).execute()
                 getLogin.close()
-                ShindenLog.d(TAG, "login step1: http=${getLogin.code}")
+                ExtLog.d(TAG, "login step1: http=${getLogin.code}")
 
                 // Step 2: POST login form
                 val body = okhttp3.FormBody.Builder()
@@ -184,7 +191,7 @@ object ShindenLoginWebView {
                 ).execute()
                 val postCode = postResponse.code
                 postResponse.close()
-                ShindenLog.d(TAG, "login step2: http=$postCode")
+                ExtLog.d(TAG, "login step2: http=$postCode")
 
                 if (postCode !in 200..399) {
                     webView.post {
@@ -222,7 +229,7 @@ object ShindenLoginWebView {
                     ?: Regex("""<title>([^<]+)\s*\(użytkownik\)""").find(mainBody)
                 val displayName = usernameMatch?.groupValues?.get(1)?.trim() ?: username
 
-                ShindenLog.d(TAG, "login OK: userId=$userId displayName=$displayName")
+                ExtLog.d(TAG, "login OK: userId=$userId displayName=$displayName")
 
                 // Parse profile page for stats
                 val profileData = parseProfile(client, headers, userId, displayName)
@@ -238,7 +245,7 @@ object ShindenLoginWebView {
                 // Notify Shinden.kt
                 onLoginSuccess(userId, displayName)
             } catch (e: Exception) {
-                ShindenLog.e(TAG, "login error: ${e.message}", e)
+                ExtLog.e(TAG, "login error: ${e.message}", e)
                 webView.post {
                     webView.evaluateJavascript("onLoginFailed('${escapeJs(e.message ?: "Nieznany błąd")}')", null)
                 }
@@ -356,7 +363,7 @@ object ShindenLoginWebView {
                 append("}")
             }
         } catch (e: Exception) {
-            ShindenLog.e(TAG, "parseProfile error: ${e.message}", e)
+            ExtLog.e(TAG, "parseProfile error: ${e.message}", e)
             ""
         }
     }
@@ -636,10 +643,10 @@ object ShindenLoginWebView {
     background: var(--bg);
   }
   .status-bar .seg { height: 100%; transition: width 0.5s; }
-  .seg-watching { background: var(--success); }
-  .seg-completed { background: var(--accent); }
+  .seg-watching { background: #4caf50; }
+  .seg-completed { background: #7c4dff; }
   .seg-planned { background: #42a5f5; }
-  .seg-other { background: var(--border); }
+  .seg-other { background: #78909c; }
 
   .statuses {
     display: grid;
@@ -766,12 +773,12 @@ object ShindenLoginWebView {
 
       <div class="statuses">
         <div class="status-item">
-          <span class="dot" style="background:var(--success)"></span>
+          <span class="dot" style="background:#4caf50"></span>
           <span class="name">Oglądam</span>
           <span class="val" id="st-watching">0</span>
         </div>
         <div class="status-item">
-          <span class="dot" style="background:var(--accent)"></span>
+          <span class="dot" style="background:#7c4dff"></span>
           <span class="name">Obejrzane</span>
           <span class="val" id="st-completed">0</span>
         </div>
@@ -786,12 +793,12 @@ object ShindenLoginWebView {
           <span class="val" id="st-hold">0</span>
         </div>
         <div class="status-item">
-          <span class="dot" style="background:var(--error)"></span>
+          <span class="dot" style="background:#ef5350"></span>
           <span class="name">Porzucone</span>
           <span class="val" id="st-dropped">0</span>
         </div>
         <div class="status-item">
-          <span class="dot" style="background:var(--border)"></span>
+          <span class="dot" style="background:#78909c"></span>
           <span class="name">Pomijam</span>
           <span class="val" id="st-skip">0</span>
         </div>

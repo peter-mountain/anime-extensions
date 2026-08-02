@@ -2,7 +2,7 @@ package aniyomi.lib.meganzextractor
 
 import android.util.Base64
 import eu.kanade.tachiyomi.animesource.model.Video
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -34,7 +34,7 @@ class MegaNzExtractor(private val client: OkHttpClient) {
     fun videosFromUrl(url: String, prefix: String = ""): List<Video> = try {
         videosFromUrlOrThrow(url, prefix)
     } catch (e: Exception) {
-        ShindenLog.e("MegaNzExtractor", "Failed to resolve mega link: ${e.message}", e)
+        ExtLog.e("MegaNzExtractor", "Failed to resolve mega link: ${e.message}", e)
         emptyList()
     }
 
