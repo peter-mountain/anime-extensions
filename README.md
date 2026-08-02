@@ -4,7 +4,7 @@
 
 **Wtyczka do przeglądania i odtwarzania anime z [Shinden.pl](https://shinden.pl) w aplikacji [Aniyomi](https://github.com/aniyomiorg/aniyomi)**
 
-[![Build](https://github.com/peter-mountain/anime-extensions/actions/workflows/build-shinden-debug.yml/badge.svg)](https://github.com/peter-mountain/anime-extensions/actions)
+[![Build](https://github.com/peter-mountain/anime-extensions/actions/workflows/build-shinden-release.yml/badge.svg)](https://github.com/peter-mountain/anime-extensions/actions)
 [![License](https://img.shields.io/github/license/peter-mountain/anime-extensions)](LICENSE)
 
 </div>

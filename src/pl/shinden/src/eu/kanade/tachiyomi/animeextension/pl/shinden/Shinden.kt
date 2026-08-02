@@ -1038,7 +1038,7 @@ class Shinden :
     private fun filterVideosByPreference(vids: List<Video>): List<Video> {
         if (vids.size <= 1) return vids
 
-        val prefQuality = preferences.getString("preferred_quality", "auto") ?: "auto"
+        val prefQuality = preferences.getString("preferred_quality", "1080") ?: "1080"
         val mode = preferences.getString("video_display_mode", "auto_highest") ?: "auto_highest"
         val prefInt = prefQuality.toIntOrNull()
 
@@ -1272,7 +1272,7 @@ class Shinden :
             title = "Preferowana jakość"
             entries = arrayOf("Auto", "1080p", "720p", "480p", "360p")
             entryValues = arrayOf("auto", "1080", "720", "480", "360")
-            setDefaultValue("auto")
+            setDefaultValue("1080")
             summary = "%s"
         }.let(screen::addPreference)
 
@@ -1331,7 +1331,7 @@ class Shinden :
             key = "show_empty_sources"
             title = "Wyświetlaj puste źródła"
             summary = "Źródła które nie zwróciły wideo będą widoczne na liście zamiast ukryte"
-            setDefaultValue(true)
+            setDefaultValue(false)
         }.let(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -1345,7 +1345,7 @@ class Shinden :
                     title = "Pomiń domeny",
                     currentItems = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion") ?: "",
                     allowReorder = false,
-                    defaultSuggestions = listOf("hqq.tv", "luluvid.com", "vk.com", "dailymotion", "ok.ru"),
+                    defaultSuggestions = listOf("hqq.tv", "luluvid.com", "vk.com", "dailymotion"),
                     onSave = { newDomains ->
                         preferences.edit().putString("skip_domains_list", newDomains).apply()
                         pref.summary = newDomains.replace(",", ", ").ifBlank { "Kliknij aby edytować" }
