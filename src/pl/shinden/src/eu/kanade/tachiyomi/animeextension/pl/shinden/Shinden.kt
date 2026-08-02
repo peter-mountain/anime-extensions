@@ -1331,7 +1331,7 @@ class Shinden :
             key = "show_empty_sources"
             title = "Wyświetlaj puste źródła"
             summary = "Źródła które nie zwróciły wideo będą widoczne na liście zamiast ukryte"
-            setDefaultValue(true)
+            setDefaultValue(false)
         }.let(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
