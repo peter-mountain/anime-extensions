@@ -6,14 +6,18 @@ import android.app.Dialog
 import android.content.Context
 import android.util.TypedValue
 import android.view.WindowManager
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import keiyoushi.utils.ExtLog
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl
 import org.jsoup.Jsoup
 
 object ShindenLoginWebView {
@@ -54,8 +58,10 @@ object ShindenLoginWebView {
                     request: android.webkit.WebResourceRequest?,
                 ): Boolean {
                     val url = request?.url?.toString() ?: return false
-                    if (url.startsWith("https://shinden.pl")) {
-                        view?.loadUrl(url, emptyMap())
+                    if (url.startsWith("https://shinden.pl") && view != null) {
+                        view.loadUrl(url, buildMap {
+                            put("User-Agent", settings.userAgentString ?: "")
+                        })
                         return true
                     }
                     return false
@@ -116,6 +122,9 @@ object ShindenLoginWebView {
         }
         webView.addJavascriptInterface(jsInterface, "AndroidBridge")
 
+        // Sync OkHttp session cookies to WebView
+        syncCookiesToWebView(webView, client.cookieJar)
+
         // Load HTML with accent color injected
         val html = LOGIN_HTML
             .replace("__ACCENT__", accentColor)
@@ -145,7 +154,30 @@ object ShindenLoginWebView {
         }, 500)
     }
 
-    // ================================ Login logic ================================
+    // ================================ Cookie sync ================================
+
+    private fun syncCookiesToWebView(
+        webView: WebView,
+        cookieJar: CookieJar,
+        baseUrl: String = "https://shinden.pl",
+    ) {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+
+        // Get all cookies from OkHttp for this URL
+        val httpUrl = HttpUrl.Builder().scheme("https").host("shinden.pl").build()
+        val cookies = cookieJar.loadForRequest(httpUrl)
+        for (cookie in cookies) {
+            val cookieStr = "${cookie.name}=${cookie.value}; " +
+                "domain=${cookie.domain}; " +
+                "path=${cookie.path}"
+            cookieManager.setCookie("https://shinden.pl", cookieStr)
+        }
+        cookieManager.flush()
+        ExtLog.d(TAG, "synced ${cookies.size} cookies to WebView")
+    }
+
+    // ================================ Login logic ====================
 
     private fun performLogin(
         context: Context,
@@ -233,6 +265,9 @@ object ShindenLoginWebView {
 
                 // Parse profile page for stats
                 val profileData = parseProfile(client, headers, userId, displayName)
+
+                // Sync cookies from login response to WebView
+                syncCookiesToWebView(webView, client.cookieJar)
 
                 // Notify WebView
                 webView.post {
