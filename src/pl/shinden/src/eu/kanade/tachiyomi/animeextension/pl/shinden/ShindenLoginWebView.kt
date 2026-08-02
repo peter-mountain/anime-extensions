@@ -643,10 +643,10 @@ object ShindenLoginWebView {
     background: var(--bg);
   }
   .status-bar .seg { height: 100%; transition: width 0.5s; }
-  .seg-watching { background: var(--success); }
-  .seg-completed { background: var(--accent); }
+  .seg-watching { background: #4caf50; }
+  .seg-completed { background: #7c4dff; }
   .seg-planned { background: #42a5f5; }
-  .seg-other { background: var(--border); }
+  .seg-other { background: #78909c; }
 
   .statuses {
     display: grid;
@@ -773,12 +773,12 @@ object ShindenLoginWebView {
 
       <div class="statuses">
         <div class="status-item">
-          <span class="dot" style="background:var(--success)"></span>
+          <span class="dot" style="background:#4caf50"></span>
           <span class="name">Oglądam</span>
           <span class="val" id="st-watching">0</span>
         </div>
         <div class="status-item">
-          <span class="dot" style="background:var(--accent)"></span>
+          <span class="dot" style="background:#7c4dff"></span>
           <span class="name">Obejrzane</span>
           <span class="val" id="st-completed">0</span>
         </div>
@@ -793,12 +793,12 @@ object ShindenLoginWebView {
           <span class="val" id="st-hold">0</span>
         </div>
         <div class="status-item">
-          <span class="dot" style="background:var(--error)"></span>
+          <span class="dot" style="background:#ef5350"></span>
           <span class="name">Porzucone</span>
           <span class="val" id="st-dropped">0</span>
         </div>
         <div class="status-item">
-          <span class="dot" style="background:var(--border)"></span>
+          <span class="dot" style="background:#78909c"></span>
           <span class="name">Pomijam</span>
           <span class="val" id="st-skip">0</span>
         </div>
