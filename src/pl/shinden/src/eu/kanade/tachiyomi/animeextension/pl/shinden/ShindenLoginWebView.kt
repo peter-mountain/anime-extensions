@@ -16,9 +16,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 
-object ExtLoginWebView {
+object ShindenLoginWebView {
 
-    private const val TAG = "ExtLogin"
+    private const val TAG = "ShindenLogin"
 
     @SuppressLint("SetJavaScriptEnabled")
     fun open(

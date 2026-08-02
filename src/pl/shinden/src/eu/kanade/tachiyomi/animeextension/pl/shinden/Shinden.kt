@@ -1234,7 +1234,7 @@ class Shinden :
             val uid = preferences.getString("shinden_user_id", null)
             summary = if (isLoggedIn && uid != null && dn != null) "Zalogowano: $dn" else "Kliknij aby się zalogować"
             setOnPreferenceClickListener { pref ->
-                ExtLoginWebView.open(
+                ShindenLoginWebView.open(
                     context = screen.context,
                     client = client,
                     headers = headers,
