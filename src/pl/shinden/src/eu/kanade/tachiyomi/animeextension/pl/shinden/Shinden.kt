@@ -525,6 +525,13 @@ class Shinden :
             SAnime.create().apply {
                 title = cleanTitle(link.text())
                 setUrlWithoutDomain(link.attr("abs:href"))
+                val parentEl = li.parent()
+                val parentTag = parentEl?.tagName() ?: "null"
+                val parentClass = parentEl?.attr("class") ?: "null"
+                val coverA = parentEl?.selectFirst(".cover-col > a")
+                val coverHref = coverA?.attr("href") ?: "NONE"
+                val parentHtml = parentEl?.html()?.take(300) ?: "NO_PARENT"
+                android.util.Log.d("ShindenThumb", "parent=$parentTag.$parentClass cover=$coverHref html=$parentHtml")
                 thumbnail_url = li.parent()?.selectFirst(".cover-col > a")?.attr("abs:href")
                 val type = li.selectFirst(".title-kind-col")?.text()?.trim()
                 val rating = li.selectFirst(".rate-top")?.text()?.trim()
