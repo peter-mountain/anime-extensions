@@ -9,7 +9,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -33,12 +33,12 @@ class FlyfileWebViewResolver(private val client: OkHttpClient) {
 
         @JavascriptInterface
         fun onPlayback(json: String) {
-            ShindenLog.d("FlyfileWV", "js:playback:${json.take(200)}")
+            ExtLog.d("FlyfileWV", "js:playback:${json.take(200)}")
         }
 
         @JavascriptInterface
         fun log(msg: String) {
-            ShindenLog.d("FlyfileWV", "js:$msg")
+            ExtLog.d("FlyfileWV", "js:$msg")
         }
     }
 
@@ -141,7 +141,7 @@ class FlyfileWebViewResolver(private val client: OkHttpClient) {
     }
 
     private fun logDebug(msg: String) {
-        ShindenLog.d(tag, msg)
+        ExtLog.d(tag, msg)
     }
 
     companion object {

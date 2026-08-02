@@ -4,7 +4,7 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
@@ -86,13 +86,13 @@ class VidaraExtractor(private val client: OkHttpClient) {
 
             listOf(debugVideo("all_methods_failed url=$url"))
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Failed to extract video from $url", e)
+            ExtLog.e(tag, "Failed to extract video from $url", e)
             listOf(debugVideo("${e::class.simpleName}:${e.message}"))
         }
     }
 
     private fun logDebug(msg: String) {
-        ShindenLog.d(tag, msg)
+        ExtLog.d(tag, msg)
     }
 
     private fun extractFromEmbedPage(

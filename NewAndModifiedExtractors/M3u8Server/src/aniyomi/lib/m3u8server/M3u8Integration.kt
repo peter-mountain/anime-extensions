@@ -1,7 +1,7 @@
 package aniyomi.lib.m3u8server
 
 import eu.kanade.tachiyomi.animesource.model.Video
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 
 /**
@@ -26,10 +26,10 @@ class M3u8Integration(
         if (!serverManager.isRunning()) {
             try {
                 serverManager.startServer() // Uses random port by default
-                ShindenLog.d(tag, "M3U8 server initialized on port: ${serverManager.getServerUrl()}")
+                ExtLog.d(tag, "M3U8 server initialized on port: ${serverManager.getServerUrl()}")
             } catch (e: Exception) {
                 // Log error but don't crash
-                ShindenLog.e(tag, "Failed to start M3U8 server: ${e.message}")
+                ExtLog.e(tag, "Failed to start M3U8 server: ${e.message}")
             }
         }
     }

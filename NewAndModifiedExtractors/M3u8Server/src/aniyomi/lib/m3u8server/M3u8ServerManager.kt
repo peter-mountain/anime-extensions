@@ -1,6 +1,6 @@
 package aniyomi.lib.m3u8server
 
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 
 /**
@@ -21,16 +21,16 @@ class M3u8ServerManager(
     @Synchronized
     fun startServer(port: Int = 0) {
         if (server != null) {
-            ShindenLog.d(tag, "Server is already running")
+            ExtLog.d(tag, "Server is already running")
             return
         }
 
         try {
             server = M3u8HttpServer(client, port, fallbackClient, dns)
             server?.start()
-            ShindenLog.d(tag, "Server started on port: ${server?.port}")
+            ExtLog.d(tag, "Server started on port: ${server?.port}")
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Failed to start server: ${e.message}")
+            ExtLog.e(tag, "Failed to start server: ${e.message}")
             server = null
             throw e
         }
@@ -43,7 +43,7 @@ class M3u8ServerManager(
     fun stopServer() {
         server?.stop()
         server = null
-        ShindenLog.d(tag, "M3U8 HTTP Server stopped")
+        ExtLog.d(tag, "M3U8 HTTP Server stopped")
     }
 
     /**

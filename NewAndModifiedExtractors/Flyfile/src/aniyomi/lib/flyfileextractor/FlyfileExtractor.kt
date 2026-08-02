@@ -3,7 +3,7 @@ package aniyomi.lib.flyfileextractor
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -16,7 +16,7 @@ class FlyfileExtractor(private val client: OkHttpClient) {
     fun videosFromUrl(url: String, prefix: String = "", headers: Headers? = null): List<Video> = try {
         videosFromUrlOrThrow(url, prefix, headers)
     } catch (e: Exception) {
-        ShindenLog.e(tag, "Failed: ${e.message}", e)
+        ExtLog.e(tag, "Failed: ${e.message}", e)
         listOf(Video("about:blank", "${prefix}Flyfile: failed", "about:blank"))
     }
 
@@ -132,6 +132,6 @@ class FlyfileExtractor(private val client: OkHttpClient) {
     }
 
     private fun logDebug(msg: String) {
-        ShindenLog.d(tag, msg)
+        ExtLog.d(tag, msg)
     }
 }

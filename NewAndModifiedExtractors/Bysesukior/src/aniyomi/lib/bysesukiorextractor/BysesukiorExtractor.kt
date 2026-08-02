@@ -5,7 +5,7 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.Dns
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -42,7 +42,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
         try {
             return videosFromUrlOrThrow(url, prefix, headers)
         } catch (e: Exception) {
-            ShindenLog.e(tag, "Failed: ${e.message}")
+            ExtLog.e(tag, "Failed: ${e.message}")
             return listOf(Video("about:blank", "${prefix}Byseukior: failed", "about:blank"))
         }
     }
@@ -603,7 +603,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
     }
 
     private fun logDebug(msg: String) {
-        ShindenLog.d(tag, msg)
+        ExtLog.d(tag, msg)
     }
 
     private fun extractHlsFromHtml(html: String): String? {

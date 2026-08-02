@@ -11,14 +11,14 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 
-object ShindenLoginWebView {
+object ExtLoginWebView {
 
-    private const val TAG = "ShindenLogin"
+    private const val TAG = "ExtLogin"
 
     @SuppressLint("SetJavaScriptEnabled")
     fun open(
@@ -159,7 +159,7 @@ object ShindenLoginWebView {
                         .build(),
                 ).execute()
                 getLogin.close()
-                ShindenLog.d(TAG, "login step1: http=${getLogin.code}")
+                ExtLog.d(TAG, "login step1: http=${getLogin.code}")
 
                 // Step 2: POST login form
                 val body = okhttp3.FormBody.Builder()
@@ -184,7 +184,7 @@ object ShindenLoginWebView {
                 ).execute()
                 val postCode = postResponse.code
                 postResponse.close()
-                ShindenLog.d(TAG, "login step2: http=$postCode")
+                ExtLog.d(TAG, "login step2: http=$postCode")
 
                 if (postCode !in 200..399) {
                     webView.post {
@@ -222,7 +222,7 @@ object ShindenLoginWebView {
                     ?: Regex("""<title>([^<]+)\s*\(użytkownik\)""").find(mainBody)
                 val displayName = usernameMatch?.groupValues?.get(1)?.trim() ?: username
 
-                ShindenLog.d(TAG, "login OK: userId=$userId displayName=$displayName")
+                ExtLog.d(TAG, "login OK: userId=$userId displayName=$displayName")
 
                 // Parse profile page for stats
                 val profileData = parseProfile(client, headers, userId, displayName)
@@ -238,7 +238,7 @@ object ShindenLoginWebView {
                 // Notify Shinden.kt
                 onLoginSuccess(userId, displayName)
             } catch (e: Exception) {
-                ShindenLog.e(TAG, "login error: ${e.message}", e)
+                ExtLog.e(TAG, "login error: ${e.message}", e)
                 webView.post {
                     webView.evaluateJavascript("onLoginFailed('${escapeJs(e.message ?: "Nieznany błąd")}')", null)
                 }
@@ -356,7 +356,7 @@ object ShindenLoginWebView {
                 append("}")
             }
         } catch (e: Exception) {
-            ShindenLog.e(TAG, "parseProfile error: ${e.message}", e)
+            ExtLog.e(TAG, "parseProfile error: ${e.message}", e)
             ""
         }
     }

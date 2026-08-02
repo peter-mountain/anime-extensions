@@ -15,7 +15,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.utils.ShindenLog
+import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -40,7 +40,7 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
 
         @JavascriptInterface
         fun log(msg: String) {
-            ShindenLog.d("BysesukiorWV", "js:$msg")
+            ExtLog.d("BysesukiorWV", "js:$msg")
         }
     }
 
@@ -52,7 +52,7 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
         val ifName = randomString()
         qCookies = cookies
 
-        ShindenLog.d(tag, "resolve embedUrl=$embedUrl cookies=${cookies.take(80)}")
+        ExtLog.d(tag, "resolve embedUrl=$embedUrl cookies=${cookies.take(80)}")
 
         if (cookies.isNotBlank()) {
             try {
@@ -64,12 +64,12 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                     val value = pair.substringAfter("=").trim()
                     if (name.isNotBlank()) {
                         cm.setCookie("https://q8y5z.com", "$name=$value")
-                        ShindenLog.d(tag, "set_cookie: $name=$value for q8y5z.com")
+                        ExtLog.d(tag, "set_cookie: $name=$value for q8y5z.com")
                     }
                 }
                 cm.flush()
             } catch (e: Exception) {
-                ShindenLog.d(tag, "cookie_err:${e.message}")
+                ExtLog.d(tag, "cookie_err:${e.message}")
             }
         }
 
@@ -87,7 +87,7 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
             wv.addJavascriptInterface(jsi, ifName)
             wv.webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
-                    ShindenLog.d(tag, "[${msg.messageLevel()}] ${msg.message()} : ${msg.sourceId()}:${msg.lineNumber()}")
+                    ExtLog.d(tag, "[${msg.messageLevel()}] ${msg.message()} : ${msg.sourceId()}:${msg.lineNumber()}")
                     return true
                 }
             }
@@ -101,24 +101,24 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                     val isMainFrame = request?.isForMainFrame ?: true
 
                     if (!reqUrl.contains("/assets/") && !reqUrl.contains("logo.svg")) {
-                        ShindenLog.d(tag, "req: $method $reqUrl mainFrame=$isMainFrame")
+                        ExtLog.d(tag, "req: $method $reqUrl mainFrame=$isMainFrame")
                     }
 
                     if (!isMainFrame && method == "GET" && reqUrl.startsWith("https://q8y5z.com/")) {
                         val path = reqUrl.substring("https://q8y5z.com/".length)
                         if (!path.startsWith("assets/") && !path.startsWith("api/") && !path.startsWith("js/") && !path.startsWith("player/") && !path.startsWith("images/")) {
-                            ShindenLog.d(tag, "intercepting_iframe_html: $reqUrl")
+                            ExtLog.d(tag, "intercepting_iframe_html: $reqUrl")
                             return try {
                                 val resp = client.newCall(GET(reqUrl)).execute()
                                 val bodyBytes = resp.body?.bytes() ?: return super.shouldInterceptRequest(view, request)
                                 val html = String(bodyBytes, Charsets.UTF_8)
-                                ShindenLog.d(tag, "iframe_html_len=${html.length}")
-                                ShindenLog.d(tag, "iframe_html_preview=${html.take(300)}")
+                                ExtLog.d(tag, "iframe_html_len=${html.length}")
+                                ExtLog.d(tag, "iframe_html_preview=${html.take(300)}")
                                 if (html.startsWith("<!") || html.startsWith("<html") || html.startsWith("<")) {
                                     val hook = buildIframeHook(ifName)
                                     val modified = html.replace("</body>", "$hook\n</body>")
                                         .replace("</BODY>", "$hook\n</BODY>")
-                                    ShindenLog.d(tag, "iframe_hook_injected")
+                                    ExtLog.d(tag, "iframe_hook_injected")
                                     WebResourceResponse(
                                         "text/html",
                                         "utf-8",
@@ -128,18 +128,18 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                                         ByteArrayInputStream(modified.toByteArray(Charsets.UTF_8)),
                                     )
                                 } else {
-                                    ShindenLog.d(tag, "iframe_not_html, passing through")
+                                    ExtLog.d(tag, "iframe_not_html, passing through")
                                     super.shouldInterceptRequest(view, request)
                                 }
                             } catch (e: Exception) {
-                                ShindenLog.d(tag, "iframe_intercept_err:${e.message}")
+                                ExtLog.d(tag, "iframe_intercept_err:${e.message}")
                                 super.shouldInterceptRequest(view, request)
                             }
                         }
                     }
 
                     if (method == "GET" && reqUrl.startsWith("https://q8y5z.com/api/") && reqUrl.contains("/embed/settings")) {
-                        ShindenLog.d(tag, "intercepting_settings: $reqUrl")
+                        ExtLog.d(tag, "intercepting_settings: $reqUrl")
                         return try {
                             val hb = okhttp3.Headers.Builder()
                             for ((k, v) in (request?.requestHeaders ?: emptyMap())) {
@@ -150,8 +150,8 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                             val resp = client.newCall(GET(reqUrl, hb.build())).execute()
                             val bodyBytes = resp.body?.bytes() ?: return super.shouldInterceptRequest(view, request)
                             val bodyStr = String(bodyBytes, Charsets.UTF_8)
-                            ShindenLog.d(tag, "settings_resp_len=${bodyBytes.size} http=${resp.code}")
-                            ShindenLog.d(tag, "settings_body=${bodyStr.take(500)}")
+                            ExtLog.d(tag, "settings_resp_len=${bodyBytes.size} http=${resp.code}")
+                            ExtLog.d(tag, "settings_body=${bodyStr.take(500)}")
                             val modifiedBytes = bodyStr.toByteArray(Charsets.UTF_8)
                             val ct = resp.header("Content-Type", "application/json") ?: "application/json"
                             val reason = resp.message.ifBlank { "OK" }
@@ -164,13 +164,13 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                                 ByteArrayInputStream(modifiedBytes),
                             )
                         } catch (e: Exception) {
-                            ShindenLog.d(tag, "settings_intercept_err:${e.message}")
+                            ExtLog.d(tag, "settings_intercept_err:${e.message}")
                             super.shouldInterceptRequest(view, request)
                         }
                     }
 
                     if (method == "POST" && reqUrl.startsWith("https://q8y5z.com/api/") && reqUrl.contains("/embed/playback")) {
-                        ShindenLog.d(tag, "playback_pass: $reqUrl")
+                        ExtLog.d(tag, "playback_pass: $reqUrl")
                         return super.shouldInterceptRequest(view, request)
                     }
 
@@ -185,12 +185,12 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                     val reqUrl = request?.url?.toString() ?: ""
                     val status = errorResponse?.statusCode ?: -1
                     if (status != 200) {
-                        ShindenLog.d(tag, "http_error: ${request?.method} $reqUrl -> $status")
+                        ExtLog.d(tag, "http_error: ${request?.method} $reqUrl -> $status")
                     }
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    ShindenLog.d(tag, "onPageFinished url=$url")
+                    ExtLog.d(tag, "onPageFinished url=$url")
                     injectParentHook(view, ifName)
                     handler.postDelayed({
                         val wv2 = view ?: return@postDelayed
@@ -203,7 +203,7 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                         wv2.dispatchTouchEvent(up)
                         down.recycle()
                         up.recycle()
-                        ShindenLog.d(tag, "touch_center_sent")
+                        ExtLog.d(tag, "touch_center_sent")
                         handler.postDelayed({
                             val down2 = MotionEvent.obtain(downTime + 100, downTime + 100, MotionEvent.ACTION_DOWN, cx, cy, 0)
                             val up2 = MotionEvent.obtain(downTime + 100, downTime + 150, MotionEvent.ACTION_UP, cx, cy, 0)
@@ -211,7 +211,7 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
                             wv2.dispatchTouchEvent(up2)
                             down2.recycle()
                             up2.recycle()
-                            ShindenLog.d(tag, "touch_center_sent2")
+                            ExtLog.d(tag, "touch_center_sent2")
                         }, 2000)
                     }, 1500)
                 }
@@ -227,7 +227,7 @@ class BysesukiorWebViewResolver(private val client: OkHttpClient) {
             webView = null
         }
 
-        ShindenLog.d(tag, "resolve result=${jsi.playbackJson != null}")
+        ExtLog.d(tag, "resolve result=${jsi.playbackJson != null}")
         return jsi.playbackJson
     }
 
