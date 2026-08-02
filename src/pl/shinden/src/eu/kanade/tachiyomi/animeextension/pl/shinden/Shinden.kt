@@ -96,6 +96,7 @@ class Shinden :
     private var myAnimeSearchQuery: String? = null
 
     init {
+        ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
         // Migrate old String values from preferred_servers/skip_domains
         // to new keys (old keys now used by SwitchPreferenceCompat as Boolean)
         try {
@@ -624,7 +625,6 @@ class Shinden :
     private val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client, dns = ShindenDns()) }
 
     override fun videoListParse(response: Response): List<Video> {
-        ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
         ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
         val document = response.asJsoup()
         val bodyText = document.outerHtml()
