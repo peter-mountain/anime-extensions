@@ -68,7 +68,9 @@ object ShindenLoginWebView {
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    if (isLoggedIn && view != null && savedUserId != null && savedDisplayName != null) {
+                    // Only inject profile data on our custom HTML (data: URL), not on real Shinden pages
+                    val isCustomPage = url == null || url.startsWith("data:")
+                    if (isCustomPage && isLoggedIn && view != null && savedUserId != null && savedDisplayName != null) {
                         view.postDelayed({
                             view.evaluateJavascript(
                                 "onLoginSuccess('$savedUserId', '${escapeJs(savedDisplayName)}')",
@@ -90,7 +92,18 @@ object ShindenLoginWebView {
         }
 
         // JS bridge
+        val userAgent = webView.settings.userAgentString ?: ""
+
         val jsInterface = object {
+            @JavascriptInterface
+            fun openUrl(url: String) {
+                webView.post {
+                    webView.loadUrl(url, buildMap {
+                        put("User-Agent", userAgent)
+                    })
+                }
+            }
+
             @JavascriptInterface
             fun login(username: String, password: String) {
                 performLogin(
@@ -131,6 +144,9 @@ object ShindenLoginWebView {
             .replace("__ACCENT_DARK__", accentDark)
         webView.loadDataWithBaseURL("https://shinden.pl", html, "text/html", "UTF-8", null)
 
+        // Inject link interceptor to handle all clicks as absolute URLs
+        injectLinkInterceptor(webView)
+
         val dialog = Dialog(
             activity,
             android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen,
@@ -152,6 +168,28 @@ object ShindenLoginWebView {
                 as android.view.inputmethod.InputMethodManager
             imm.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
         }, 500)
+    }
+
+
+    // ================================ Link interceptor ================================
+
+    private fun injectLinkInterceptor(webView: WebView) {
+        webView.evaluateJavascript(
+            """
+            (function() {
+                document.addEventListener('click', function(e) {
+                    var el = e.target;
+                    while (el && el.tagName !== 'A') el = el.parentElement;
+                    if (el && el.href) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.AndroidBridge.openUrl(el.href);
+                    }
+                }, true);
+            })();
+            """,
+            null,
+        )
     }
 
     // ================================ Cookie sync ================================
