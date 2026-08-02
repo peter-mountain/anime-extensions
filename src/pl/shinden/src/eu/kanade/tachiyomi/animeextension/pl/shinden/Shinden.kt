@@ -525,9 +525,7 @@ class Shinden :
             SAnime.create().apply {
                 title = cleanTitle(link.text())
                 setUrlWithoutDomain(link.attr("abs:href"))
-                thumbnail_url = li.selectFirst("img")?.let { img ->
-                    img.attr("abs:data-src").ifBlank { img.attr("abs:src") }
-                }
+                thumbnail_url = li.parent()?.selectFirst(".cover-col > a")?.attr("abs:href")
                 val type = li.selectFirst(".title-kind-col")?.text()?.trim()
                 val rating = li.selectFirst(".rate-top")?.text()?.trim()
                 val episodes = li.selectFirst(".episodes-col")?.text()?.trim()
