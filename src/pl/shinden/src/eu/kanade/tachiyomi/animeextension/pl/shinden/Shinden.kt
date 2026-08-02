@@ -96,6 +96,7 @@ class Shinden :
     private var myAnimeSearchQuery: String? = null
 
     init {
+        ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
         // Migrate old String values from preferred_servers/skip_domains
         // to new keys (old keys now used by SwitchPreferenceCompat as Boolean)
         try {
@@ -624,7 +625,6 @@ class Shinden :
     private val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client, dns = ShindenDns()) }
 
     override fun videoListParse(response: Response): List<Video> {
-        ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
         ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
         val document = response.asJsoup()
         val bodyText = document.outerHtml()
@@ -1109,7 +1109,12 @@ class Shinden :
                 SAnime.create().apply {
                     this.title = cleanTitle(title)
                     setUrlWithoutDomain("/series/$titleId")
-                    thumbnail_url = null
+                    val coverId = item.optInt("coverId", 0)
+                    thumbnail_url = if (coverId > 0) {
+                        "https://shinden.pl/res/images/genuine/$coverId.jpg"
+                    } else {
+                        null
+                    }
                     val extraParts = listOfNotNull(
                         item.optString("animeType", null)?.let { "Typ: $it" },
                         item.optString("titleStatus", null)?.let { "Status: $it" },
