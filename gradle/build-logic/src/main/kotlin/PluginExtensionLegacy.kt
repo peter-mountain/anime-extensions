@@ -59,7 +59,7 @@ class PluginExtensionLegacy : Plugin<Project> {
             defaultConfig {
                 applicationIdSuffix = project.parent?.name + "." + project.name
                 versionCode = if (theme == null) extVersionCode else theme.baseVersionCode + overrideVersionCode
-                versionName = "14.$versionCode"
+                versionName = "1.0"
                 base {
                     archivesName.set("aniyomi-$applicationIdSuffix-v$versionName")
                 }
