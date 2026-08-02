@@ -52,7 +52,14 @@ object ShindenLoginWebView {
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     request: android.webkit.WebResourceRequest?,
-                ): Boolean = false
+                ): Boolean {
+                    val url = request?.url?.toString() ?: return false
+                    if (url.startsWith("https://shinden.pl")) {
+                        view?.loadUrl(url, emptyMap())
+                        return true
+                    }
+                    return false
+                }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (isLoggedIn && view != null && savedUserId != null && savedDisplayName != null) {
