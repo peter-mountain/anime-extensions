@@ -1038,7 +1038,7 @@ class Shinden :
     private fun filterVideosByPreference(vids: List<Video>): List<Video> {
         if (vids.size <= 1) return vids
 
-        val prefQuality = preferences.getString("preferred_quality", "auto") ?: "auto"
+        val prefQuality = preferences.getString("preferred_quality", "1080") ?: "1080"
         val mode = preferences.getString("video_display_mode", "auto_highest") ?: "auto_highest"
         val prefInt = prefQuality.toIntOrNull()
 
