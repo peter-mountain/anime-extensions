@@ -1109,7 +1109,12 @@ class Shinden :
                 SAnime.create().apply {
                     this.title = cleanTitle(title)
                     setUrlWithoutDomain("/series/$titleId")
-                    thumbnail_url = null
+                    val coverId = item.optInt("coverId", 0)
+                    thumbnail_url = if (coverId > 0) {
+                        "https://shinden.pl/res/images/genuine/$coverId.jpg"
+                    } else {
+                        null
+                    }
                     val extraParts = listOfNotNull(
                         item.optString("animeType", null)?.let { "Typ: $it" },
                         item.optString("titleStatus", null)?.let { "Status: $it" },
