@@ -490,17 +490,27 @@ class Shinden :
                 epMap[f.state]?.let { append("&series_number[]=$it") }
             }
 
+            // Date validation based on precision
+            val precisionFilter = filters.filterIsInstance<YearPrecisionFilter>().firstOrNull()
+            val datePattern = when (precisionFilter?.state ?: 0) {
+                0 -> Regex("^\\d{4}$") // RRRR
+                1 -> Regex("^\\d{4}-\\d{2}$") // RRRR-MM
+                2 -> Regex("^\\d{4}-\\d{2}-\\d{2}$") // RRRR-MM-DD
+                else -> Regex("^\\d{4}$")
+            }
             filters.filterIsInstance<YearFromFilter>().firstOrNull()?.let { f ->
-                if (f.state.isNotBlank()) append("&year_from=${f.state}")
+                val sanitized = f.state.replace(".", "-").replace(Regex("[^0-9-]"), "")
+                if (sanitized.isNotBlank() && datePattern.matches(sanitized)) append("&year_from=$sanitized")
             }
             filters.filterIsInstance<YearToFilter>().firstOrNull()?.let { f ->
-                if (f.state.isNotBlank()) append("&year_to=${f.state}")
+                val sanitized = f.state.replace(".", "-").replace(Regex("[^0-9-]"), "")
+                if (sanitized.isNotBlank() && datePattern.matches(sanitized)) append("&year_to=$sanitized")
             }
-            filters.filterIsInstance<YearPrecisionFilter>().firstOrNull()?.let { f ->
+            precisionFilter?.let { f ->
                 val precision = when (f.state) {
-                    0 -> "1" // year only
-                    1 -> "2" // year, month
-                    2 -> "3" // year, month, day
+                    0 -> "1" // RRRR
+                    1 -> "2" // RRRR-MM
+                    2 -> "3" // RRRR-MM-DD
                     else -> "1"
                 }
                 append("&start_date_precision=$precision")

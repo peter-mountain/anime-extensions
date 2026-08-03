@@ -276,9 +276,9 @@ class YearPrecisionFilter :
     AnimeFilter.Select<String>(
         "Precyzja daty",
         arrayOf(
-            "Rok",
-            "Rok, miesiąc",
-            "Rok, miesiąc, dzień",
+            "RRRR",
+            "RRRR-MM",
+            "RRRR-MM-DD",
         ),
     )
 
