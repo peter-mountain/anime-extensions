@@ -537,6 +537,7 @@ class Shinden :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
+        ExtLog.d(TAG, "searchAnimeParse: called, url=${response.request.url}")
         // No userId + Moje anime = empty
         if (isMyAnimeActive && myAnimeNoUserId) {
             isMyAnimeActive = false
