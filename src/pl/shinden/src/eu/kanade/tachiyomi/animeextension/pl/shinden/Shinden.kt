@@ -96,6 +96,12 @@ class Shinden :
     private var myAnimeActiveTitleStatusFilter: String? = null
     private var myAnimeSearchQuery: String? = null
 
+    // Batch loading: fetch multiple pages at once
+    private val batchSize = 4
+    private var batchOffset = 1
+    private var batchHasNext = false
+    private var searchBaseUrl = ""
+
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
         // Migrate old String values from preferred_servers/skip_domains
@@ -270,22 +276,28 @@ class Shinden :
 
     // ================================ Popular =====================================
 
-    override fun popularAnimeRequest(page: Int): Request = GET(
-        "$baseUrl/series?view=list&page=$page&sort=rating" +
-            "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
-        headers,
-    )
+    override fun popularAnimeRequest(page: Int): Request {
+        batchOffset = (page - 1) * batchSize + 1
+        return GET(
+            "$baseUrl/series?view=list&page=$batchOffset&sort=rating" +
+                "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
+            headers,
+        )
+    }
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeList(response)
+    override fun popularAnimeParse(response: Response): AnimesPage = parseBatch(response, "sort=rating&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing")
 
     // ================================ Latest ======================================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(
-        "$baseUrl/series?view=list&page=$page&sort=latest",
-        headers,
-    )
+    override fun latestUpdatesRequest(page: Int): Request {
+        batchOffset = (page - 1) * batchSize + 1
+        return GET(
+            "$baseUrl/series?view=list&page=$batchOffset&sort=latest",
+            headers,
+        )
+    }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeList(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseBatch(response, "sort=latest")
 
     // ================================ Search ======================================
 
@@ -516,6 +528,9 @@ class Shinden :
                 append("&start_date_precision=$precision")
             }
         }
+        // Store base URL (without page) for batch loading
+        searchBaseUrl = url.replace(Regex("page=\\d+"), "page={PAGE}")
+        batchOffset = (page - 1) * batchSize + 1
         return GET(url, headers)
     }
 
@@ -561,7 +576,20 @@ class Shinden :
                 AnimesPage(filtered, false)
             }
         }
-        return parseAnimeList(response)
+        // Batch fetch for regular search
+        val allEntries = mutableListOf<SAnime>()
+        var currentResponse = response
+        for (i in 0 until batchSize) {
+            val pageResult = parseAnimeList(currentResponse)
+            allEntries.addAll(pageResult.animes)
+            batchHasNext = pageResult.hasNextPage
+            if (!batchHasNext || i == batchSize - 1) break
+            currentResponse.close()
+            val nextPage = batchOffset + i + 1
+            val nextUrl = searchBaseUrl.replace("{PAGE}", nextPage.toString())
+            currentResponse = client.newCall(GET(nextUrl, headers)).execute()
+        }
+        return AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
     }
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         AnimeFilter.Header("⚠️ Z filtrem 🎬 Moje anime działa jedynie sortowanie alfabetyczne oraz domyślne"),
@@ -594,6 +622,31 @@ class Shinden :
         return cleaned.ifBlank { trimmed }
     }
 
+    private fun parseBatch(firstResponse: Response, sortParams: String): AnimesPage {
+        val allEntries = mutableListOf<SAnime>()
+        var currentResponse = firstResponse
+        ExtLog.d(TAG, "parseBatch: start batchOffset=$batchOffset batchSize=$batchSize")
+
+        for (i in 0 until batchSize) {
+            val pageResult = parseAnimeList(currentResponse)
+            ExtLog.d(TAG, "parseBatch: page ${batchOffset + i} returned ${pageResult.animes.size} items, hasNextPage=${pageResult.hasNextPage}")
+            allEntries.addAll(pageResult.animes)
+            batchHasNext = pageResult.hasNextPage
+
+            if (!batchHasNext || i == batchSize - 1) break
+
+            currentResponse.close()
+            val nextPage = batchOffset + i + 1
+            val url = "$baseUrl/series?view=list&page=$nextPage&$sortParams"
+            ExtLog.d(TAG, "parseBatch: fetching page $nextPage")
+            currentResponse = client.newCall(GET(url, headers)).execute()
+        }
+
+        val distinct = allEntries.distinctBy { it.url }
+        ExtLog.d(TAG, "parseBatch: total=${allEntries.size} distinct=${distinct.size}")
+        return AnimesPage(distinct, batchHasNext)
+    }
+
     private fun parseAnimeList(response: Response): AnimesPage {
         val document = response.asJsoup()
         val items = document.select("li.desc-col")
@@ -622,7 +675,7 @@ class Shinden :
             }
         }.distinctBy { it.url }
 
-        val hasNextPage = document.selectFirst("li.paging-next") != null
+        val hasNextPage = document.selectFirst("li.pagination-next") != null
 
         return AnimesPage(entries, hasNextPage)
     }
