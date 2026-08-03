@@ -84,6 +84,7 @@ class Shinden :
     // Track whether myAnime mode is active (for getFilterList)
     @Volatile
     private var isMyAnimeActive = false
+
     @Volatile
     private var myAnimeNoUserId = false
     private var myAnimeRemainingStatuses: List<String> = emptyList()
@@ -94,6 +95,14 @@ class Shinden :
     private var myAnimeActiveEpisodeFilter: String? = null
     private var myAnimeActiveTitleStatusFilter: String? = null
     private var myAnimeSearchQuery: String? = null
+
+    // Batch loading: fetch multiple pages at once
+    private val batchSize = 4
+    private var batchOffset = 1
+    private var batchHasNext = false
+    private var popularOffset = 1
+    private var latestOffset = 1
+    private var searchBaseUrl = ""
 
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
@@ -269,22 +278,28 @@ class Shinden :
 
     // ================================ Popular =====================================
 
-    override fun popularAnimeRequest(page: Int): Request = GET(
-        "$baseUrl/series?view=list&page=$page&sort=rating" +
-            "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
-        headers,
-    )
+    override fun popularAnimeRequest(page: Int): Request {
+        popularOffset = (page - 1) * batchSize + 1
+        return GET(
+            "$baseUrl/series?view=list&page=$popularOffset&sort=rating" +
+                "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
+            headers,
+        )
+    }
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeList(response)
+    override fun popularAnimeParse(response: Response): AnimesPage = parseBatch(response, "sort=rating&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing", popularOffset)
 
     // ================================ Latest ======================================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(
-        "$baseUrl/series?view=list&page=$page&sort=latest",
-        headers,
-    )
+    override fun latestUpdatesRequest(page: Int): Request {
+        latestOffset = (page - 1) * batchSize + 1
+        return GET(
+            "$baseUrl/series?view=list&page=$latestOffset&sort=latest",
+            headers,
+        )
+    }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeList(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseBatch(response, "sort=latest", latestOffset)
 
     // ================================ Search ======================================
 
@@ -314,7 +329,7 @@ class Shinden :
                     3 to "OVA",
                     4 to "Movie",
                     5 to "Special",
-                    6 to "TV Short",
+                    6 to "Music",
                 )
                 myAnimeActiveTypeFilter = filters.filterIsInstance<AnimeTypeFilter>().firstOrNull()
                     ?.let { typeMap[it.state] }
@@ -345,11 +360,26 @@ class Shinden :
                 // Capture sort (A-Z/Z-A work, rating sort not supported)
                 myAnimeActiveSortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()?.state ?: 0
 
+                // Capture status filter before resetting (works with list API)
+                myAnimeActiveTitleStatusFilter = filters.filterIsInstance<StatusFilter>().firstOrNull()?.let { f ->
+                    when (f.state) {
+                        1 -> "Currently Airing"
+                        2 -> "Finished Airing"
+                        3 -> "Not yet aired"
+                        4 -> "Proposal"
+                        else -> null
+                    }
+                }
+
                 // Reset unsupported filters - they don't work for list API
                 filters.filterIsInstance<StatusFilter>().firstOrNull()?.let { it.state = 0 }
-                filters.filterIsInstance<GenreFilter>().firstOrNull()?.let { f ->
-                    f.state.forEach { it.state = false }
-                }
+                filters.filterIsInstance<GenreFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<TargetGroupFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<EntityFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<PlaceFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<MiscTagFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<ProductionTypeFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<SourceFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
                 filters.filterIsInstance<SortFilter>().firstOrNull()?.let { it.state = 0 }
                 ExtLog.d(TAG, "my anime: reset StatusFilter, GenreFilter, SortFilter (unsupported for list)")
 
@@ -374,6 +404,10 @@ class Shinden :
         if (!myAnimeNoUserId) {
             isMyAnimeActive = false
             myAnimeSearchQuery = null
+            // Reset watch status filter when Moje anime is unchecked
+            filters.filterIsInstance<MyAnimeWatchStatusFilter>().firstOrNull()?.let { f ->
+                f.state.forEach { it.state = false }
+            }
         }
 
         val url = buildString {
@@ -387,7 +421,7 @@ class Shinden :
                     3 to "OVA",
                     4 to "Movie",
                     5 to "Special",
-                    6 to "TV Short",
+                    6 to "Music",
                 )
                 typeMap[f.state]?.let { append("&series_type[]=$it") }
             }
@@ -402,25 +436,38 @@ class Shinden :
                 statusMap[f.state]?.let { append("&series_status[]=$it") }
             }
 
+            // Collect all genre IDs from all genre group filters into single param
+            val allGenreIds = mutableListOf<String>()
             filters.filterIsInstance<GenreFilter>().firstOrNull()
-                ?.state?.filter { it.state }?.forEach { g ->
-                    append("&genres=i${g.id}")
-                }
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<TargetGroupFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<EntityFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<PlaceFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<MiscTagFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<ProductionTypeFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<SourceFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+
+            if (allGenreIds.isNotEmpty()) {
+                append("&genres-type=all")
+                append("&genres=")
+                append(allGenreIds.joinToString(";") { "i$it" })
+            }
 
             filters.filterIsInstance<SortFilter>().firstOrNull()?.let { f ->
                 when (f.state) {
-                    1 -> append("&sort_by=desc&sort_order=asc")
-
-                    // title A-Z
-
-                    2 -> append("&sort_by=desc&sort_order=desc")
-
-                    // title Z-A
-                    3 -> append("&sort_by=ranking-rate&sort_order=desc")
-
-                    // rating high-low
-
-                    4 -> append("&sort_by=ranking-rate&sort_order=asc") // rating asc
+                    1 -> append("&sort_by=desc&sort_order=asc") // title A-Z
+                    2 -> append("&sort_by=desc&sort_order=desc") // title Z-A
+                    3 -> append("&sort_by=type&sort_order=desc") // type
+                    4 -> append("&sort_by=multimedia&sort_order=desc") // multimedia
+                    5 -> append("&sort_by=status&sort_order=desc") // status
+                    6 -> append("&sort_by=ranking-rate&sort_order=desc") // rating high-low
+                    7 -> append("&sort_by=ranking-rate&sort_order=asc") // rating low-high
                 }
             }
 
@@ -435,6 +482,17 @@ class Shinden :
                 }
             }
 
+            filters.filterIsInstance<SeriesLengthFilter>().firstOrNull()?.let { f ->
+                val lengthMap = mapOf(
+                    1 to "less_7",
+                    2 to "7_to_18",
+                    3 to "19_to_27",
+                    4 to "28_to_48",
+                    5 to "over_48",
+                )
+                lengthMap[f.state]?.let { append("&series_length[]=$it") }
+            }
+
             filters.filterIsInstance<EpisodeCountFilter>().firstOrNull()?.let { f ->
                 val epMap = mapOf(
                     1 to "only_1",
@@ -445,7 +503,36 @@ class Shinden :
                 )
                 epMap[f.state]?.let { append("&series_number[]=$it") }
             }
+
+            // Date validation based on precision
+            val precisionFilter = filters.filterIsInstance<YearPrecisionFilter>().firstOrNull()
+            val datePattern = when (precisionFilter?.state ?: 0) {
+                0 -> Regex("^\\d{4}$") // RRRR
+                1 -> Regex("^\\d{4}-\\d{2}$") // RRRR-MM
+                2 -> Regex("^\\d{4}-\\d{2}-\\d{2}$") // RRRR-MM-DD
+                else -> Regex("^\\d{4}$")
+            }
+            filters.filterIsInstance<YearFromFilter>().firstOrNull()?.let { f ->
+                val sanitized = f.state.replace(".", "-").replace(Regex("[^0-9-]"), "")
+                if (sanitized.isNotBlank() && datePattern.matches(sanitized)) append("&year_from=$sanitized")
+            }
+            filters.filterIsInstance<YearToFilter>().firstOrNull()?.let { f ->
+                val sanitized = f.state.replace(".", "-").replace(Regex("[^0-9-]"), "")
+                if (sanitized.isNotBlank() && datePattern.matches(sanitized)) append("&year_to=$sanitized")
+            }
+            precisionFilter?.let { f ->
+                val precision = when (f.state) {
+                    0 -> "1" // RRRR
+                    1 -> "2" // RRRR-MM
+                    2 -> "3" // RRRR-MM-DD
+                    else -> "1"
+                }
+                append("&start_date_precision=$precision")
+            }
         }
+        // Store base URL (without page) for batch loading
+        searchBaseUrl = url.replace(Regex("page=\\d+"), "page={PAGE}")
+        batchOffset = (page - 1) * batchSize + 1
         return GET(url, headers)
     }
 
@@ -491,18 +578,42 @@ class Shinden :
                 AnimesPage(filtered, false)
             }
         }
-        return parseAnimeList(response)
+        // Batch fetch for regular search
+        val allEntries = mutableListOf<SAnime>()
+        var currentResponse = response
+        for (i in 0 until batchSize) {
+            val pageResult = parseAnimeList(currentResponse)
+            allEntries.addAll(pageResult.animes)
+            batchHasNext = pageResult.hasNextPage
+            if (!batchHasNext || i == batchSize - 1) break
+            currentResponse.close()
+            val nextPage = batchOffset + i + 1
+            val nextUrl = searchBaseUrl.replace("{PAGE}", nextPage.toString())
+            currentResponse = client.newCall(GET(nextUrl, headers)).execute()
+        }
+        return AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
     }
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("⚠️ Gatunek, status i sortowanie ocenami nie działają z listą anime"),
+        AnimeFilter.Header("⚠️ Z filtrem 🎬 Moje anime działa jedynie sortowanie alfabetyczne oraz domyślne"),
         MyAnimeFilter(),
         MyAnimeWatchStatusFilter(),
         AnimeTypeFilter(),
         StatusFilter(),
-        GenreFilter(),
-        SortFilter(),
         LetterFilter(),
         EpisodeCountFilter(),
+        SortFilter(),
+        AnimeFilter.Header("Poniższe filtry nie współpracują z 🎬 Moje anime:"),
+        GenreFilter(),
+        TargetGroupFilter(),
+        EntityFilter(),
+        PlaceFilter(),
+        MiscTagFilter(),
+        ProductionTypeFilter(),
+        SourceFilter(),
+        SeriesLengthFilter(),
+        YearFromFilter(),
+        YearToFilter(),
+        YearPrecisionFilter(),
     )
     private fun cleanTitle(raw: String): String {
         // Remove leading "Anime" when it's a single word prefix
@@ -511,6 +622,31 @@ class Shinden :
         val trimmed = raw.trim()
         val cleaned = trimmed.replace(Regex("""^Anime\s+""", RegexOption.IGNORE_CASE), "")
         return cleaned.ifBlank { trimmed }
+    }
+
+    private fun parseBatch(firstResponse: Response, sortParams: String, startPage: Int = batchOffset): AnimesPage {
+        val allEntries = mutableListOf<SAnime>()
+        var currentResponse = firstResponse
+        ExtLog.d(TAG, "parseBatch: startPage=$startPage batchSize=$batchSize")
+
+        for (i in 0 until batchSize) {
+            val pageResult = parseAnimeList(currentResponse)
+            ExtLog.d(TAG, "parseBatch: page ${startPage + i} returned ${pageResult.animes.size} items, hasNextPage=${pageResult.hasNextPage}")
+            allEntries.addAll(pageResult.animes)
+            batchHasNext = pageResult.hasNextPage
+
+            if (!batchHasNext || i == batchSize - 1) break
+
+            currentResponse.close()
+            val nextPage = startPage + i + 1
+            val url = "$baseUrl/series?view=list&page=$nextPage&$sortParams"
+            ExtLog.d(TAG, "parseBatch: fetching page $nextPage")
+            currentResponse = client.newCall(GET(url, headers)).execute()
+        }
+
+        val distinct = allEntries.distinctBy { it.url }
+        ExtLog.d(TAG, "parseBatch: total=${allEntries.size} distinct=${distinct.size}")
+        return AnimesPage(distinct, batchHasNext)
     }
 
     private fun parseAnimeList(response: Response): AnimesPage {
@@ -541,7 +677,7 @@ class Shinden :
             }
         }.distinctBy { it.url }
 
-        val hasNextPage = document.selectFirst("li.paging-next") != null
+        val hasNextPage = document.selectFirst("li.pagination-next") != null
 
         return AnimesPage(entries, hasNextPage)
     }
@@ -559,7 +695,51 @@ class Shinden :
             genre = document.select("a[href*=/genre/], a[href*=/gatunek/]")
                 .joinToString(", ") { it.text().trim() }
                 .ifBlank { null }
-            status = SAnime.UNKNOWN
+
+            // Parse status from the page
+            val statusText = document.selectFirst("section.title-small-info dl.info-aside-list dt:matchesOwn(^Status:$) + dd")
+                ?.text()?.trim() ?: ""
+            status = when {
+                statusText.contains("Zakończone", ignoreCase = true) ||
+                    statusText.contains("Finished", ignoreCase = true) -> SAnime.COMPLETED
+                statusText.contains("Emitowane", ignoreCase = true) ||
+                    statusText.contains("Currently Airing", ignoreCase = true) -> SAnime.ONGOING
+                else -> SAnime.UNKNOWN
+            }
+
+            // Parse rating and add to top of description
+            val ratingText = document.selectFirst("h3.info-aside-rating-data span.info-aside-rating-user")
+                ?.text()?.replace(",", ".")?.trim() ?: ""
+            if (ratingText.isNotBlank()) {
+                val rating = ratingText.toFloatOrNull()
+                if (rating != null) {
+                    val stars = when {
+                        rating >= 9.0 -> "★★★★★"
+                        rating >= 8.0 -> "★★★★½"
+                        rating >= 7.0 -> "★★★★"
+                        rating >= 6.0 -> "★★★½"
+                        rating >= 5.0 -> "★★★"
+                        rating >= 4.0 -> "★★½"
+                        rating >= 3.0 -> "★★"
+                        else -> "★"
+                    }
+                    val ratingLine = "$stars $ratingText/10"
+                    val currentDesc = description ?: ""
+                    description = if (currentDesc.isNotBlank()) {
+                        "$ratingLine\n\n$currentDesc"
+                    } else {
+                        ratingLine
+                    }
+                }
+            }
+
+            // Set studio as author (Aniyomi shows author at top)
+            val studioText = document.select("section.title-small-info dl.info-aside-list dt:matchesOwn(^Studio:$) + dd a[href^='/studio/']")
+                .joinToString(", ") { it.text().trim() }
+                .ifBlank { null }
+            if (studioText != null) {
+                author = studioText
+            }
         }
     }
 
@@ -579,10 +759,17 @@ class Shinden :
             val num = cols[0].text().trim().toFloatOrNull() ?: return@mapNotNull null
             val title = cols[1].text().trim()
 
+            // Detect filler episodes (Shinden uses i.fa-facebook.button-with-tip for filler)
+            val isFiller = row.selectFirst("i.fa-facebook.button-with-tip") != null
+
             SEpisode.create().apply {
                 setUrlWithoutDomain(href)
                 episode_number = num
-                name = if (title.isNotBlank()) "${num.toInt()}. $title" else "Odcinek ${num.toInt()}"
+                name = if (title.isNotBlank()) {
+                    if (isFiller) "(Filler) ${num.toInt()}. $title" else "${num.toInt()}. $title"
+                } else {
+                    if (isFiller) "(Filler) Odcinek ${num.toInt()}" else "Odcinek ${num.toInt()}"
+                }
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
         }.sortedBy { it.episode_number }
@@ -626,6 +813,7 @@ class Shinden :
 
     override fun videoListParse(response: Response): List<Video> {
         ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
+
         val document = response.asJsoup()
         val bodyText = document.outerHtml()
 
@@ -1195,7 +1383,7 @@ class Shinden :
     override fun List<Video>.sort(): List<Video> {
         val serversStr = preferences.getString("preferred_servers_list", "") ?: ""
         val servers = serversStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        if (servers.isEmpty()) return this
+        val prefInt = (preferences.getString("preferred_quality", "1080") ?: "1080").toIntOrNull()
 
         val embedRegex = Regex("\\(([^)]+)\\)")
         val groupMap = mutableMapOf<String, MutableList<Video>>()
@@ -1220,6 +1408,14 @@ class Shinden :
                 seen.add(embedHost)
                 groupOrder.add(embedHost)
             }
+        }
+
+        // Without preferred servers, lift sources containing the preferred quality to the top
+        if (servers.isEmpty() && prefInt != null) {
+            val qualityRegex = Regex("""\b${prefInt}p\b""", RegexOption.IGNORE_CASE)
+            return groupOrder
+                .sortedBy { host -> !groupMap.getValue(host).any { qualityRegex.containsMatchIn(it.quality) } }
+                .flatMap { groupMap.getValue(it) }
         }
 
         return groupOrder
