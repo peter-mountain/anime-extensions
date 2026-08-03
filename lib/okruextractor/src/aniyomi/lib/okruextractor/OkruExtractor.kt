@@ -33,15 +33,16 @@ class OkruExtractor(private val client: OkHttpClient, private val headers: Heade
             ?: return emptyList<Video>()
 
         return when {
-            "ondemandHls" in videoString -> {
-                val playlistUrl = videoString.extractLink("ondemandHls")
-                playlistUtils.extractFromHls(playlistUrl, videoNameGen = { "Okru:$it".addPrefix(prefix) })
-            }
+            videoString.contains("\\\"videos\\\":[{\\\"name") -> videosFromJson(videoString, prefix, fixQualities)
             "ondemandDash" in videoString -> {
                 val playlistUrl = videoString.extractLink("ondemandDash")
                 playlistUtils.extractFromDash(playlistUrl, videoNameGen = { "Okru:$it".addPrefix(prefix) })
             }
-            else -> videosFromJson(videoString, prefix, fixQualities)
+            "ondemandHls" in videoString -> {
+                val playlistUrl = videoString.extractLink("ondemandHls")
+                playlistUtils.extractFromHls(playlistUrl, videoNameGen = { "Okru:$it".addPrefix(prefix) })
+            }
+            else -> emptyList()
         }
     }
 

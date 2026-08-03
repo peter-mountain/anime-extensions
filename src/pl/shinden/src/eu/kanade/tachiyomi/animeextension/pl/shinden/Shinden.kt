@@ -9,12 +9,12 @@ import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.bysesukiorextractor.BysesukiorExtractor
 import aniyomi.lib.cdaextractor.CdaExtractor
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.flyfileextractor.FlyfileExtractor
 import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
 import aniyomi.lib.googledriveplayerextractor.GoogleDrivePlayerExtractor
-import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.lycoriscafeextractor.LycorisCafeExtractor
 import aniyomi.lib.meganzextractor.MegaNzExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
@@ -100,9 +100,13 @@ class Shinden :
     private val batchSize = 4
     private var batchOffset = 1
     private var batchHasNext = false
-    private var popularOffset = 1
-    private var latestOffset = 1
     private var searchBaseUrl = ""
+    private var lastSearchUrl = ""
+    private var lastSearchResult: AnimesPage? = null
+    private var lastSearchQuery = ""
+    private var lastSearchFiltersHash = 0
+    private var lastSearchPage = 0
+    private var currentSearchPage = 1
 
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
@@ -278,32 +282,35 @@ class Shinden :
 
     // ================================ Popular =====================================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        popularOffset = (page - 1) * batchSize + 1
-        return GET(
-            "$baseUrl/series?view=list&page=$popularOffset&sort=rating" +
-                "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
-            headers,
-        )
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET(
+        "$baseUrl/series?view=list&page=$page&sort=rating" +
+            "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
+        headers,
+    )
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseBatch(response, "sort=rating&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing", popularOffset)
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeList(response)
 
     // ================================ Latest ======================================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        latestOffset = (page - 1) * batchSize + 1
-        return GET(
-            "$baseUrl/series?view=list&page=$latestOffset&sort=latest",
-            headers,
-        )
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET(
+        "$baseUrl/series?view=list&page=$page&sort=latest",
+        headers,
+    )
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseBatch(response, "sort=latest", latestOffset)
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeList(response)
 
     // ================================ Search ======================================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        currentSearchPage = page
+        val filtersHash = filters.hashCode()
+        if (query != lastSearchQuery || filtersHash != lastSearchFiltersHash || page != lastSearchPage) {
+            lastSearchUrl = ""
+            lastSearchResult = null
+            lastSearchQuery = query
+            lastSearchFiltersHash = filtersHash
+            lastSearchPage = page
+        }
         // Handle my anime filter - server-side per-status
         val myAnimeFilter = filters.filterIsInstance<MyAnimeFilter>().firstOrNull()
         if (myAnimeFilter != null && myAnimeFilter.state) {
@@ -531,12 +538,23 @@ class Shinden :
             }
         }
         // Store base URL (without page) for batch loading
-        searchBaseUrl = url.replace(Regex("page=\\d+"), "page={PAGE}")
         batchOffset = (page - 1) * batchSize + 1
-        return GET(url, headers)
+        val pageUrl = if (url.contains("page=")) {
+            url.replace(Regex("page=\\d+"), "page=$batchOffset")
+        } else {
+            "$url&page=$batchOffset"
+        }
+        searchBaseUrl = pageUrl.replace(Regex("page=\\d+"), "page={PAGE}")
+        return GET(pageUrl, headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
+        ExtLog.d(TAG, "searchAnimeParse: called, url=${response.request.url}")
+        val currentUrl = response.request.url.toString()
+        if (currentUrl == lastSearchUrl && lastSearchResult != null && currentSearchPage == lastSearchPage) {
+            ExtLog.d(TAG, "searchAnimeParse: returning cached result for same URL")
+            return lastSearchResult!!
+        }
         // No userId + Moje anime = empty
         if (isMyAnimeActive && myAnimeNoUserId) {
             isMyAnimeActive = false
@@ -579,19 +597,26 @@ class Shinden :
             }
         }
         // Batch fetch for regular search
+        ExtLog.d(TAG, "searchAnimeParse: batch start batchOffset=$batchOffset batchSize=$batchSize searchBaseUrl=$searchBaseUrl")
         val allEntries = mutableListOf<SAnime>()
         var currentResponse = response
         for (i in 0 until batchSize) {
             val pageResult = parseAnimeList(currentResponse)
+            ExtLog.d(TAG, "searchAnimeParse: page ${batchOffset + i} returned ${pageResult.animes.size} items, hasNextPage=${pageResult.hasNextPage}")
             allEntries.addAll(pageResult.animes)
             batchHasNext = pageResult.hasNextPage
             if (!batchHasNext || i == batchSize - 1) break
             currentResponse.close()
             val nextPage = batchOffset + i + 1
             val nextUrl = searchBaseUrl.replace("{PAGE}", nextPage.toString())
+            ExtLog.d(TAG, "searchAnimeParse: fetching page $nextPage url=$nextUrl")
             currentResponse = client.newCall(GET(nextUrl, headers)).execute()
         }
-        return AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
+        ExtLog.d(TAG, "searchAnimeParse: batch done total=${allEntries.size} distinct=${allEntries.distinctBy { it.url }.size} batchHasNext=$batchHasNext")
+        val result = AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
+        lastSearchUrl = currentUrl
+        lastSearchResult = result
+        return result
     }
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         AnimeFilter.Header("⚠️ Z filtrem 🎬 Moje anime działa jedynie sortowanie alfabetyczne oraz domyślne"),
@@ -622,31 +647,6 @@ class Shinden :
         val trimmed = raw.trim()
         val cleaned = trimmed.replace(Regex("""^Anime\s+""", RegexOption.IGNORE_CASE), "")
         return cleaned.ifBlank { trimmed }
-    }
-
-    private fun parseBatch(firstResponse: Response, sortParams: String, startPage: Int = batchOffset): AnimesPage {
-        val allEntries = mutableListOf<SAnime>()
-        var currentResponse = firstResponse
-        ExtLog.d(TAG, "parseBatch: startPage=$startPage batchSize=$batchSize")
-
-        for (i in 0 until batchSize) {
-            val pageResult = parseAnimeList(currentResponse)
-            ExtLog.d(TAG, "parseBatch: page ${startPage + i} returned ${pageResult.animes.size} items, hasNextPage=${pageResult.hasNextPage}")
-            allEntries.addAll(pageResult.animes)
-            batchHasNext = pageResult.hasNextPage
-
-            if (!batchHasNext || i == batchSize - 1) break
-
-            currentResponse.close()
-            val nextPage = startPage + i + 1
-            val url = "$baseUrl/series?view=list&page=$nextPage&$sortParams"
-            ExtLog.d(TAG, "parseBatch: fetching page $nextPage")
-            currentResponse = client.newCall(GET(url, headers)).execute()
-        }
-
-        val distinct = allEntries.distinctBy { it.url }
-        ExtLog.d(TAG, "parseBatch: total=${allEntries.size} distinct=${distinct.size}")
-        return AnimesPage(distinct, batchHasNext)
     }
 
     private fun parseAnimeList(response: Response): AnimesPage {
@@ -790,6 +790,7 @@ class Shinden :
     private val fallbackAuth = "X2d1ZXN0XzowLDUsMjEwMDAwMDAsMjU1LDQxNzQyOTM2NDQ="
 
     private val cdaExtractor by lazy { CdaExtractor(client) }
+    private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
@@ -797,7 +798,6 @@ class Shinden :
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client, headers) }
-    private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val lycorisExtractor by lazy { LycorisCafeExtractor(client) }
     private val streamupExtractor by lazy { StreamupExtractor(client) }
@@ -809,7 +809,7 @@ class Shinden :
     private val googleDrivePlayerExtractor by lazy { GoogleDrivePlayerExtractor(client, headers, preferences.getBoolean("verbose_logging", false)) }
     private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
     private val playmateExtractor by lazy { PlaymateExtractor(client) }
-    private val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client, dns = ShindenDns()) }
+    private val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client) }
 
     override fun videoListParse(response: Response): List<Video> {
         ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
@@ -954,7 +954,7 @@ class Shinden :
                                 val embedHost = runCatching { embedUrl.toHttpUrl().host }.getOrDefault("?")
 
                                 // Domain skip filter
-                                val skipDomains = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion")?.trim() ?: ""
+                                val skipDomains = preferences.getString("skip_domains_list", "hqq.tv,vk.com,lulu")?.trim() ?: ""
                                 if (skipDomains.isNotBlank()) {
                                     val skipList = skipDomains.split(",").map { it.trim().lowercase() }
                                     if (skipList.any { embedHost.lowercase().contains(it) }) {
@@ -979,14 +979,15 @@ class Shinden :
                                     embedUrl.contains("streamtape") ->
                                         listOfNotNull(streamTapeExtractor.videoFromUrl(embedUrl)) to "Streamtape"
 
-                                    embedUrl.contains("ok.ru") || embedUrl.contains("odnoklassniki") || embedUrl.contains("okru") ->
-                                        okruExtractor.videosFromUrl(embedUrl, prefix = prefix) to "Okru"
+                                    embedUrl.contains("ok.ru") || embedUrl.contains("odnoklassniki") || embedUrl.contains("okru") -> {
+                                        ExtLog.d(TAG, ">>> ok.ru dispatch: embedUrl=$embedUrl prefix=$prefix")
+                                        val result = okruExtractor.videosFromUrl(embedUrl, prefix = prefix)
+                                        ExtLog.d(TAG, "<<< ok.ru returned ${result.size} videos")
+                                        result to "Okru"
+                                    }
 
                                     embedUrl.contains("uqload") ->
                                         uqloadExtractor.videosFromUrl(embedUrl, prefix) to "Uqload"
-
-                                    embedUrl.contains("lulu") ->
-                                        luluExtractor.videosFromUrl(embedUrl, prefix) to "Lulu"
 
                                     embedUrl.contains("lycoris") || embedUrl.contains("lycoris.cafe") ->
                                         lycorisExtractor.getVideosFromUrl(embedUrl, headers, prefix) to "Lycoris"
@@ -1020,6 +1021,10 @@ class Shinden :
 
                                     embedUrl.contains("playmate.to") ->
                                         playmateExtractor.videosFromUrl(embedUrl, prefix) to "Playmate"
+
+                                    embedUrl.contains("dailymotion") ->
+                                        dailymotionExtractor.videosFromUrl(embedUrl, prefix) to "Dailymotion"
+
 
                                     else ->
                                         universalExtractor.videosFromUrl(embedUrl, headers, customQuality = "$host $quality", prefix = prefix) to "Universal"
@@ -1067,7 +1072,7 @@ class Shinden :
             val filtered = if (!showEmpty) {
                 processed.filter { !it.url.startsWith("about:blank") }
             } else {
-                processed
+                processed.sortedBy { it.url.startsWith("about:blank") }
             }
             if (preferences.getBoolean("verbose_logging", false)) {
                 ExtLog.d(TAG, "=== DONE: ${processed.size} videos total (showEmpty=$showEmpty, filtered=${filtered.size}) ===")
@@ -1381,6 +1386,11 @@ class Shinden :
     // ================================ Sort =========================================
 
     override fun List<Video>.sort(): List<Video> {
+        val (empty, nonEmpty) = partition { it.url.startsWith("about:blank") }
+        return nonEmpty.sortInternal() + empty
+    }
+
+    private fun List<Video>.sortInternal(): List<Video> {
         val serversStr = preferences.getString("preferred_servers_list", "") ?: ""
         val servers = serversStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
         val prefInt = (preferences.getString("preferred_quality", "1080") ?: "1080").toIntOrNull()
@@ -1533,15 +1543,15 @@ class Shinden :
         SwitchPreferenceCompat(screen.context).apply {
             key = "skip_domains"
             title = "Pomiń domeny"
-            summary = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion")?.replace(",", ", ")
+            summary = preferences.getString("skip_domains_list", "hqq.tv,vk.com,lulu")?.replace(",", ", ")
                 ?.ifBlank { "Kliknij aby edytować" } ?: "Kliknij aby edytować"
             setOnPreferenceClickListener { pref ->
                 ShindenListEditor.open(
                     context = screen.context,
                     title = "Pomiń domeny",
-                    currentItems = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion") ?: "",
+                    currentItems = preferences.getString("skip_domains_list", "hqq.tv,vk.com,lulu") ?: "",
                     allowReorder = false,
-                    defaultSuggestions = listOf("hqq.tv", "luluvid.com", "vk.com", "dailymotion"),
+                    defaultSuggestions = listOf("hqq.tv", "vk.com", "luluvid.com"),
                     onSave = { newDomains ->
                         preferences.edit().putString("skip_domains_list", newDomains).apply()
                         pref.summary = newDomains.replace(",", ", ").ifBlank { "Kliknij aby edytować" }
