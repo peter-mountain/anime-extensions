@@ -596,18 +596,22 @@ class Shinden :
             }
         }
         // Batch fetch for regular search
+        ExtLog.d(TAG, "searchAnimeParse: batch start batchOffset=$batchOffset batchSize=$batchSize searchBaseUrl=$searchBaseUrl")
         val allEntries = mutableListOf<SAnime>()
         var currentResponse = response
         for (i in 0 until batchSize) {
             val pageResult = parseAnimeList(currentResponse)
+            ExtLog.d(TAG, "searchAnimeParse: page ${batchOffset + i} returned ${pageResult.animes.size} items, hasNextPage=${pageResult.hasNextPage}")
             allEntries.addAll(pageResult.animes)
             batchHasNext = pageResult.hasNextPage
             if (!batchHasNext || i == batchSize - 1) break
             currentResponse.close()
             val nextPage = batchOffset + i + 1
             val nextUrl = searchBaseUrl.replace("{PAGE}", nextPage.toString())
+            ExtLog.d(TAG, "searchAnimeParse: fetching page $nextPage url=$nextUrl")
             currentResponse = client.newCall(GET(nextUrl, headers)).execute()
         }
+        ExtLog.d(TAG, "searchAnimeParse: batch done total=${allEntries.size} distinct=${allEntries.distinctBy { it.url }.size} batchHasNext=$batchHasNext")
         val result = AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
         lastSearchUrl = currentUrl
         lastSearchResult = result
