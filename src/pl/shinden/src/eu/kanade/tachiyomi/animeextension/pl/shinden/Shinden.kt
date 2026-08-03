@@ -107,6 +107,8 @@ class Shinden :
     private var lastSearchResult: AnimesPage? = null
     private var lastSearchQuery = ""
     private var lastSearchFiltersHash = 0
+    private var lastSearchPage = 0
+    private var currentSearchPage = 1
 
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
@@ -308,12 +310,14 @@ class Shinden :
     // ================================ Search ======================================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        currentSearchPage = page
         val filtersHash = filters.hashCode()
-        if (query != lastSearchQuery || filtersHash != lastSearchFiltersHash) {
+        if (query != lastSearchQuery || filtersHash != lastSearchFiltersHash || page != lastSearchPage) {
             lastSearchUrl = ""
             lastSearchResult = null
             lastSearchQuery = query
             lastSearchFiltersHash = filtersHash
+            lastSearchPage = page
         }
         // Handle my anime filter - server-side per-status
         val myAnimeFilter = filters.filterIsInstance<MyAnimeFilter>().firstOrNull()
@@ -551,7 +555,7 @@ class Shinden :
     override fun searchAnimeParse(response: Response): AnimesPage {
         ExtLog.d(TAG, "searchAnimeParse: called, url=${response.request.url}")
         val currentUrl = response.request.url.toString()
-        if (currentUrl == lastSearchUrl && lastSearchResult != null) {
+        if (currentUrl == lastSearchUrl && lastSearchResult != null && currentSearchPage == lastSearchPage) {
             ExtLog.d(TAG, "searchAnimeParse: returning cached result for same URL")
             return lastSearchResult!!
         }
