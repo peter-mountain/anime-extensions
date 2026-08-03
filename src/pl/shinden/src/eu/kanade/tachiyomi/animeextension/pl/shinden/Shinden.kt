@@ -105,6 +105,8 @@ class Shinden :
     private var searchBaseUrl = ""
     private var lastSearchUrl = ""
     private var lastSearchResult: AnimesPage? = null
+    private var lastSearchQuery = ""
+    private var lastSearchFiltersHash = 0
 
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
@@ -306,8 +308,13 @@ class Shinden :
     // ================================ Search ======================================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        lastSearchUrl = ""
-        lastSearchResult = null
+        val filtersHash = filters.hashCode()
+        if (query != lastSearchQuery || filtersHash != lastSearchFiltersHash) {
+            lastSearchUrl = ""
+            lastSearchResult = null
+            lastSearchQuery = query
+            lastSearchFiltersHash = filtersHash
+        }
         // Handle my anime filter - server-side per-status
         val myAnimeFilter = filters.filterIsInstance<MyAnimeFilter>().firstOrNull()
         if (myAnimeFilter != null && myAnimeFilter.state) {
