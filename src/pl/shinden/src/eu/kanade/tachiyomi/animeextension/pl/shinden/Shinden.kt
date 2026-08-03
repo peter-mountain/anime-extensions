@@ -103,6 +103,8 @@ class Shinden :
     private var popularOffset = 1
     private var latestOffset = 1
     private var searchBaseUrl = ""
+    private var lastSearchUrl = ""
+    private var lastSearchResult: AnimesPage? = null
 
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
@@ -304,6 +306,8 @@ class Shinden :
     // ================================ Search ======================================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        lastSearchUrl = ""
+        lastSearchResult = null
         // Handle my anime filter - server-side per-status
         val myAnimeFilter = filters.filterIsInstance<MyAnimeFilter>().firstOrNull()
         if (myAnimeFilter != null && myAnimeFilter.state) {
@@ -538,6 +542,11 @@ class Shinden :
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         ExtLog.d(TAG, "searchAnimeParse: called, url=${response.request.url}")
+        val currentUrl = response.request.url.toString()
+        if (currentUrl == lastSearchUrl && lastSearchResult != null) {
+            ExtLog.d(TAG, "searchAnimeParse: returning cached result for same URL")
+            return lastSearchResult!!
+        }
         // No userId + Moje anime = empty
         if (isMyAnimeActive && myAnimeNoUserId) {
             isMyAnimeActive = false
@@ -592,7 +601,10 @@ class Shinden :
             val nextUrl = searchBaseUrl.replace("{PAGE}", nextPage.toString())
             currentResponse = client.newCall(GET(nextUrl, headers)).execute()
         }
-        return AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
+        val result = AnimesPage(allEntries.distinctBy { it.url }, batchHasNext)
+        lastSearchUrl = currentUrl
+        lastSearchResult = result
+        return result
     }
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         AnimeFilter.Header("⚠️ Z filtrem 🎬 Moje anime działa jedynie sortowanie alfabetyczne oraz domyślne"),
