@@ -542,10 +542,14 @@ class Shinden :
             }
         }
         // Store base URL (without page) for batch loading
-        val urlWithPage = if (url.contains("page=")) url else "$url&page=1"
-        searchBaseUrl = urlWithPage.replace(Regex("page=\\d+"), "page={PAGE}")
         batchOffset = (page - 1) * batchSize + 1
-        return GET(url, headers)
+        val pageUrl = if (url.contains("page=")) {
+            url.replace(Regex("page=\\d+"), "page=$batchOffset")
+        } else {
+            "$url&page=$batchOffset"
+        }
+        searchBaseUrl = pageUrl.replace(Regex("page=\\d+"), "page={PAGE}")
+        return GET(pageUrl, headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
