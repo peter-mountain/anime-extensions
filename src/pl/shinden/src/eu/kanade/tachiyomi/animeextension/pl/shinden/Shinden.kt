@@ -1195,7 +1195,7 @@ class Shinden :
     override fun List<Video>.sort(): List<Video> {
         val serversStr = preferences.getString("preferred_servers_list", "") ?: ""
         val servers = serversStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        if (servers.isEmpty()) return this
+        val prefInt = (preferences.getString("preferred_quality", "1080") ?: "1080").toIntOrNull()
 
         val embedRegex = Regex("\\(([^)]+)\\)")
         val groupMap = mutableMapOf<String, MutableList<Video>>()
@@ -1220,6 +1220,14 @@ class Shinden :
                 seen.add(embedHost)
                 groupOrder.add(embedHost)
             }
+        }
+
+        // Without preferred servers, lift sources containing the preferred quality to the top
+        if (servers.isEmpty() && prefInt != null) {
+            val qualityRegex = Regex("""\b${prefInt}p\b""", RegexOption.IGNORE_CASE)
+            return groupOrder
+                .sortedBy { host -> !groupMap.getValue(host).any { qualityRegex.containsMatchIn(it.quality) } }
+                .flatMap { groupMap.getValue(it) }
         }
 
         return groupOrder
