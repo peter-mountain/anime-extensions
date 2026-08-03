@@ -315,7 +315,7 @@ class Shinden :
                     3 to "OVA",
                     4 to "Movie",
                     5 to "Special",
-                    6 to "TV Short",
+                    6 to "Music",
                 )
                 myAnimeActiveTypeFilter = filters.filterIsInstance<AnimeTypeFilter>().firstOrNull()
                     ?.let { typeMap[it.state] }
@@ -346,11 +346,26 @@ class Shinden :
                 // Capture sort (A-Z/Z-A work, rating sort not supported)
                 myAnimeActiveSortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()?.state ?: 0
 
+                // Capture status filter before resetting (works with list API)
+                myAnimeActiveTitleStatusFilter = filters.filterIsInstance<StatusFilter>().firstOrNull()?.let { f ->
+                    when (f.state) {
+                        1 -> "Currently Airing"
+                        2 -> "Finished Airing"
+                        3 -> "Not yet aired"
+                        4 -> "Proposal"
+                        else -> null
+                    }
+                }
+
                 // Reset unsupported filters - they don't work for list API
                 filters.filterIsInstance<StatusFilter>().firstOrNull()?.let { it.state = 0 }
-                filters.filterIsInstance<GenreFilter>().firstOrNull()?.let { f ->
-                    f.state.forEach { it.state = false }
-                }
+                filters.filterIsInstance<GenreFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<TargetGroupFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<EntityFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<PlaceFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<MiscTagFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<ProductionTypeFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
+                filters.filterIsInstance<SourceFilter>().firstOrNull()?.let { f -> f.state.forEach { it.state = false } }
                 filters.filterIsInstance<SortFilter>().firstOrNull()?.let { it.state = 0 }
                 ExtLog.d(TAG, "my anime: reset StatusFilter, GenreFilter, SortFilter (unsupported for list)")
 
@@ -375,6 +390,10 @@ class Shinden :
         if (!myAnimeNoUserId) {
             isMyAnimeActive = false
             myAnimeSearchQuery = null
+            // Reset watch status filter when Moje anime is unchecked
+            filters.filterIsInstance<MyAnimeWatchStatusFilter>().firstOrNull()?.let { f ->
+                f.state.forEach { it.state = false }
+            }
         }
 
         val url = buildString {
@@ -388,7 +407,7 @@ class Shinden :
                     3 to "OVA",
                     4 to "Movie",
                     5 to "Special",
-                    6 to "TV Short",
+                    6 to "Music",
                 )
                 typeMap[f.state]?.let { append("&series_type[]=$it") }
             }
@@ -403,25 +422,38 @@ class Shinden :
                 statusMap[f.state]?.let { append("&series_status[]=$it") }
             }
 
+            // Collect all genre IDs from all genre group filters into single param
+            val allGenreIds = mutableListOf<String>()
             filters.filterIsInstance<GenreFilter>().firstOrNull()
-                ?.state?.filter { it.state }?.forEach { g ->
-                    append("&genres=i${g.id}")
-                }
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<TargetGroupFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<EntityFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<PlaceFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<MiscTagFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<ProductionTypeFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+            filters.filterIsInstance<SourceFilter>().firstOrNull()
+                ?.state?.filter { it.state }?.forEach { allGenreIds.add(it.id) }
+
+            if (allGenreIds.isNotEmpty()) {
+                append("&genres-type=all")
+                append("&genres=")
+                append(allGenreIds.joinToString(";") { "i$it" })
+            }
 
             filters.filterIsInstance<SortFilter>().firstOrNull()?.let { f ->
                 when (f.state) {
-                    1 -> append("&sort_by=desc&sort_order=asc")
-
-                    // title A-Z
-
-                    2 -> append("&sort_by=desc&sort_order=desc")
-
-                    // title Z-A
-                    3 -> append("&sort_by=ranking-rate&sort_order=desc")
-
-                    // rating high-low
-
-                    4 -> append("&sort_by=ranking-rate&sort_order=asc") // rating asc
+                    1 -> append("&sort_by=desc&sort_order=asc") // title A-Z
+                    2 -> append("&sort_by=desc&sort_order=desc") // title Z-A
+                    3 -> append("&sort_by=type&sort_order=desc") // type
+                    4 -> append("&sort_by=multimedia&sort_order=desc") // multimedia
+                    5 -> append("&sort_by=status&sort_order=desc") // status
+                    6 -> append("&sort_by=ranking-rate&sort_order=desc") // rating high-low
+                    7 -> append("&sort_by=ranking-rate&sort_order=asc") // rating low-high
                 }
             }
 
@@ -436,6 +468,17 @@ class Shinden :
                 }
             }
 
+            filters.filterIsInstance<SeriesLengthFilter>().firstOrNull()?.let { f ->
+                val lengthMap = mapOf(
+                    1 to "less_7",
+                    2 to "7_to_18",
+                    3 to "19_to_27",
+                    4 to "28_to_48",
+                    5 to "over_48",
+                )
+                lengthMap[f.state]?.let { append("&series_length[]=$it") }
+            }
+
             filters.filterIsInstance<EpisodeCountFilter>().firstOrNull()?.let { f ->
                 val epMap = mapOf(
                     1 to "only_1",
@@ -447,6 +490,21 @@ class Shinden :
                 epMap[f.state]?.let { append("&series_number[]=$it") }
             }
 
+            filters.filterIsInstance<YearFromFilter>().firstOrNull()?.let { f ->
+                if (f.state.isNotBlank()) append("&year_from=${f.state}")
+            }
+            filters.filterIsInstance<YearToFilter>().firstOrNull()?.let { f ->
+                if (f.state.isNotBlank()) append("&year_to=${f.state}")
+            }
+            filters.filterIsInstance<YearPrecisionFilter>().firstOrNull()?.let { f ->
+                val precision = when (f.state) {
+                    0 -> "1" // year only
+                    1 -> "2" // year, month
+                    2 -> "3" // year, month, day
+                    else -> "1"
+                }
+                append("&start_date_precision=$precision")
+            }
         }
         return GET(url, headers)
     }
@@ -496,15 +554,26 @@ class Shinden :
         return parseAnimeList(response)
     }
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("⚠️ Gatunek, status i sortowanie ocenami nie działają z listą anime"),
+        AnimeFilter.Header("⚠️ Z filtrem 🎬 Moje anime działa jedynie sortowanie alfabetyczne oraz domyślne"),
         MyAnimeFilter(),
         MyAnimeWatchStatusFilter(),
         AnimeTypeFilter(),
         StatusFilter(),
-        GenreFilter(),
-        SortFilter(),
         LetterFilter(),
         EpisodeCountFilter(),
+        SortFilter(),
+        AnimeFilter.Header("Poniższe filtry nie współpracują z 🎬 Moje anime:"),
+        GenreFilter(),
+        TargetGroupFilter(),
+        EntityFilter(),
+        PlaceFilter(),
+        MiscTagFilter(),
+        ProductionTypeFilter(),
+        SourceFilter(),
+        SeriesLengthFilter(),
+        YearFromFilter(),
+        YearToFilter(),
+        YearPrecisionFilter(),
     )
     private fun cleanTitle(raw: String): String {
         // Remove leading "Anime" when it's a single word prefix
@@ -573,7 +642,7 @@ class Shinden :
                 else -> SAnime.UNKNOWN
             }
 
-                        // Parse rating and add to top of description
+            // Parse rating and add to top of description
             val ratingText = document.selectFirst("h3.info-aside-rating-data span.info-aside-rating-user")
                 ?.text()?.replace(",", ".")?.trim() ?: ""
             if (ratingText.isNotBlank()) {
@@ -598,14 +667,15 @@ class Shinden :
                     }
                 }
             }
-            
+
             // Set studio as author (Aniyomi shows author at top)
             val studioText = document.select("section.title-small-info dl.info-aside-list dt:matchesOwn(^Studio:$) + dd a[href^='/studio/']")
                 .joinToString(", ") { it.text().trim() }
                 .ifBlank { null }
             if (studioText != null) {
                 author = studioText
-            }        }
+            }
+        }
     }
 
     // ================================ Episodes ====================================
