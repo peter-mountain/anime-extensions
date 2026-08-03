@@ -84,6 +84,7 @@ class Shinden :
     // Track whether myAnime mode is active (for getFilterList)
     @Volatile
     private var isMyAnimeActive = false
+
     @Volatile
     private var myAnimeNoUserId = false
     private var myAnimeRemainingStatuses: List<String> = emptyList()
@@ -445,6 +446,7 @@ class Shinden :
                 )
                 epMap[f.state]?.let { append("&series_number[]=$it") }
             }
+
         }
         return GET(url, headers)
     }
@@ -559,8 +561,51 @@ class Shinden :
             genre = document.select("a[href*=/genre/], a[href*=/gatunek/]")
                 .joinToString(", ") { it.text().trim() }
                 .ifBlank { null }
-            status = SAnime.UNKNOWN
-        }
+
+            // Parse status from the page
+            val statusText = document.selectFirst("section.title-small-info dl.info-aside-list dt:matchesOwn(^Status:$) + dd")
+                ?.text()?.trim() ?: ""
+            status = when {
+                statusText.contains("Zakończone", ignoreCase = true) ||
+                    statusText.contains("Finished", ignoreCase = true) -> SAnime.COMPLETED
+                statusText.contains("Emitowane", ignoreCase = true) ||
+                    statusText.contains("Currently Airing", ignoreCase = true) -> SAnime.ONGOING
+                else -> SAnime.UNKNOWN
+            }
+
+                        // Parse rating and add to top of description
+            val ratingText = document.selectFirst("h3.info-aside-rating-data span.info-aside-rating-user")
+                ?.text()?.replace(",", ".")?.trim() ?: ""
+            if (ratingText.isNotBlank()) {
+                val rating = ratingText.toFloatOrNull()
+                if (rating != null) {
+                    val stars = when {
+                        rating >= 9.0 -> "★★★★★"
+                        rating >= 8.0 -> "★★★★½"
+                        rating >= 7.0 -> "★★★★"
+                        rating >= 6.0 -> "★★★½"
+                        rating >= 5.0 -> "★★★"
+                        rating >= 4.0 -> "★★½"
+                        rating >= 3.0 -> "★★"
+                        else -> "★"
+                    }
+                    val ratingLine = "$stars $ratingText/10"
+                    val currentDesc = description ?: ""
+                    description = if (currentDesc.isNotBlank()) {
+                        "$ratingLine\n\n$currentDesc"
+                    } else {
+                        ratingLine
+                    }
+                }
+            }
+            
+            // Set studio as author (Aniyomi shows author at top)
+            val studioText = document.select("section.title-small-info dl.info-aside-list dt:matchesOwn(^Studio:$) + dd a[href^='/studio/']")
+                .joinToString(", ") { it.text().trim() }
+                .ifBlank { null }
+            if (studioText != null) {
+                author = studioText
+            }        }
     }
 
     // ================================ Episodes ====================================
@@ -579,10 +624,17 @@ class Shinden :
             val num = cols[0].text().trim().toFloatOrNull() ?: return@mapNotNull null
             val title = cols[1].text().trim()
 
+            // Detect filler episodes (Shinden uses i.fa-facebook.button-with-tip for filler)
+            val isFiller = row.selectFirst("i.fa-facebook.button-with-tip") != null
+
             SEpisode.create().apply {
                 setUrlWithoutDomain(href)
                 episode_number = num
-                name = if (title.isNotBlank()) "${num.toInt()}. $title" else "Odcinek ${num.toInt()}"
+                name = if (title.isNotBlank()) {
+                    if (isFiller) "(Filler) ${num.toInt()}. $title" else "${num.toInt()}. $title"
+                } else {
+                    if (isFiller) "(Filler) Odcinek ${num.toInt()}" else "Odcinek ${num.toInt()}"
+                }
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
         }.sortedBy { it.episode_number }
@@ -626,6 +678,7 @@ class Shinden :
 
     override fun videoListParse(response: Response): List<Video> {
         ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
+
         val document = response.asJsoup()
         val bodyText = document.outerHtml()
 
