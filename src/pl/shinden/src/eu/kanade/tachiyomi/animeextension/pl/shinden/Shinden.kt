@@ -542,7 +542,8 @@ class Shinden :
             }
         }
         // Store base URL (without page) for batch loading
-        searchBaseUrl = url.replace(Regex("page=\\d+"), "page={PAGE}")
+        val urlWithPage = if (url.contains("page=")) url else "$url&page=1"
+        searchBaseUrl = urlWithPage.replace(Regex("page=\\d+"), "page={PAGE}")
         batchOffset = (page - 1) * batchSize + 1
         return GET(url, headers)
     }
