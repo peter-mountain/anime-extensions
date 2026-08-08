@@ -968,14 +968,18 @@ class Shinden :
                                 val filterLang = preferences.getBoolean("filter_language", false)
                                 if (filterLang) {
                                     val allowedAudio = preferences.getStringSet("allowed_audio_langs", emptySet()) ?: emptySet()
-                                    val hideNoSubs = preferences.getBoolean("hide_no_subs", false)
-                                    if (hideNoSubs && (subs.isBlank() || subs.contains("--"))) {
-                                        ExtLog.d(TAG, "SKIP no subs: host=$host")
-                                        return@withTimeoutOrNull emptyList()
-                                    }
+                                    val allowedSubs = preferences.getStringSet("allowed_subs_langs", emptySet()) ?: emptySet()
                                     if (allowedAudio.isNotEmpty() && !allowedAudio.any { audio.contains(it, ignoreCase = true) }) {
                                         ExtLog.d(TAG, "SKIP audio lang: host=$host audio=$audio")
                                         return@withTimeoutOrNull emptyList()
+                                    }
+                                    if (allowedSubs.isNotEmpty()) {
+                                        val hasMatchingSubs = subs.isNotBlank() && !subs.contains("--") &&
+                                            allowedSubs.any { subs.contains(it, ignoreCase = true) }
+                                        if (!hasMatchingSubs) {
+                                            ExtLog.d(TAG, "SKIP subs lang: host=$host subs=$subs")
+                                            return@withTimeoutOrNull emptyList()
+                                        }
                                     }
                                 }
 
@@ -1633,11 +1637,13 @@ class Shinden :
             setDefaultValue(false)
         }.let(screen::addPreference)
 
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "hide_no_subs"
-            title = " Ukryj źródła bez napisów"
-            summary = "Źródła bez napisów nie będą wyświetlane"
-            setDefaultValue(false)
+        MultiSelectListPreference(screen.context).apply {
+            key = "allowed_subs_langs"
+            title = "📝 Dozwolone języki napisów"
+            summary = "Źródła z innym językiem napisów (lub bez) zostaną pominięte"
+            entries = arrayOf("Polski", "Angielski", "Japoński", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
+            entryValues = arrayOf("Polski", "Angielski", "Japoński", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
+            setDefaultValue(emptySet<String>())
         }.let(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
