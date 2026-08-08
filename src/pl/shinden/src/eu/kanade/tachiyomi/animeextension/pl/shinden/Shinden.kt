@@ -1288,28 +1288,25 @@ class Shinden :
         }
 
         // auto_highest / highest_only: quality filter first, then display mode
-        val filtered = if (prefInt != null) {
-            val exactMatch = vids.filter { matchesPref(it.quality) }
-            if (exactMatch.isNotEmpty()) {
-                exactMatch
-            } else {
-                val lower = vids.filter { numericP(it.quality) in 1 until prefInt }
-                    .sortedByDescending { numericP(it.quality) }
-                if (lower.isNotEmpty()) lower else vids
-            }
+        // Find best numeric match from original vids
+        val exactMatch = vids.filter { matchesPref(it.quality) }
+        val bestNumeric = if (exactMatch.isNotEmpty()) {
+            exactMatch
+        } else if (prefInt != null) {
+            val lower = vids.filter { numericP(it.quality) in 1 until prefInt }
+                .sortedByDescending { numericP(it.quality) }
+            if (lower.isNotEmpty()) lower else vids
         } else {
             vids
         }
 
-        if (filtered.size <= 1) return filtered
-
-        val auto = filtered.filter { it.quality.contains("auto", ignoreCase = true) }
-        val numeric = filtered.filter { numericP(it.quality) > 0 }
-        val maxP = numeric.maxByOrNull { numericP(it.quality) }
+        // Always search auto in ORIGINAL vids, not in narrowed list
+        val auto = vids.filter { it.quality.contains("auto", ignoreCase = true) }
+        val maxP = bestNumeric.maxByOrNull { numericP(it.quality) }
 
         return when (mode) {
             "highest_only" -> {
-                if (maxP != null) listOf(maxP) else filtered
+                if (maxP != null) listOf(maxP) else bestNumeric
             }
 
             "auto_highest" -> {
@@ -1319,7 +1316,7 @@ class Shinden :
                 r
             }
 
-            else -> filtered
+            else -> bestNumeric
         }
     }
     // ================================ Anime List =====================================
