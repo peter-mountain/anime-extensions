@@ -1646,7 +1646,7 @@ class Shinden :
             summary = "Źródła z innym językiem dźwięku zostaną pominięte"
             entries = arrayOf("Japoński", "Polski", "Angielski", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
             entryValues = arrayOf("Japoński", "Polski", "Angielski", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
-            setDefaultValue(emptySet())
+            setDefaultValue(emptySet<String>())
         }.let(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
