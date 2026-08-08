@@ -1435,11 +1435,14 @@ class Shinden :
         val prefInt = prefQuality.toIntOrNull()
         val prefIsAuto = prefQuality.equals("auto", ignoreCase = true)
 
-        val embedRegex = Regex("\\(([^)]+)\\)")
+        val hostExtractRegex = Regex("^(.+?)\\s+\\b(?:\\d+p|auto)\\b", RegexOption.IGNORE_CASE)
+        fun extractHost(quality: String): String =
+            hostExtractRegex.find(quality)?.groupValues?.get(1)?.trim() ?: quality
+
         val groupMap = mutableMapOf<String, MutableList<Video>>()
 
         for (video in this) {
-            val embedHost = embedRegex.find(video.quality)?.groupValues?.get(1) ?: video.quality
+            val embedHost = extractHost(video.quality)
             groupMap.getOrPut(embedHost) { mutableListOf() }.add(video)
         }
 
@@ -1453,7 +1456,7 @@ class Shinden :
         val seen = mutableSetOf<String>()
         val groupOrder = mutableListOf<String>()
         for (video in this) {
-            val embedHost = embedRegex.find(video.quality)?.groupValues?.get(1) ?: video.quality
+            val embedHost = extractHost(video.quality)
             if (embedHost !in seen) {
                 seen.add(embedHost)
                 groupOrder.add(embedHost)
