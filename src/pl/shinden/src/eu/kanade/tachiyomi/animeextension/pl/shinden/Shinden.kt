@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.SharedPreferences
 import android.text.InputType
 import androidx.preference.EditTextPreference
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
@@ -963,6 +964,21 @@ class Shinden :
                                     }
                                 }
 
+                                // Language filter (hard skip before dispatch)
+                                val filterLang = preferences.getBoolean("filter_language", false)
+                                if (filterLang) {
+                                    val allowedAudio = preferences.getStringSet("allowed_audio_langs", emptySet()) ?: emptySet()
+                                    val hideNoSubs = preferences.getBoolean("hide_no_subs", false)
+                                    if (hideNoSubs && (subs.isBlank() || subs.contains("--"))) {
+                                        ExtLog.d(TAG, "SKIP no subs: host=$host")
+                                        return@withTimeoutOrNull emptyList()
+                                    }
+                                    if (allowedAudio.isNotEmpty() && !allowedAudio.any { audio.contains(it, ignoreCase = true) }) {
+                                        ExtLog.d(TAG, "SKIP audio lang: host=$host audio=$audio")
+                                        return@withTimeoutOrNull emptyList()
+                                    }
+                                }
+
                                 val (videos, extractorName) = when {
                                     embedUrl.contains("cda.pl") ->
                                         cdaExtractor.getVideosFromUrl(embedUrl, headers, prefix) to "Cda"
@@ -1036,12 +1052,8 @@ class Shinden :
                                         .find(extractorQuality)?.value
                                         ?: Regex("""\b(\d+p)\b""", RegexOption.IGNORE_CASE).find(video.quality)?.value
                                         ?: quality
-                                    val langParts = mutableListOf<String>()
-                                    if (audio.isNotBlank()) langParts.add(audio)
-                                    if (subs.isNotBlank() && !subs.contains("--")) langParts.add(subs)
-                                    val langStr = if (langParts.isNotEmpty()) " [${langParts.joinToString(" - ")}]" else ""
-                                    val authorPart = if (subsAuthor.isNotBlank()) " - $subsAuthor" else ""
-                                    val finalQuality = "$host ($embedHost) $extractorName $qMatch$authorPart$langStr"
+                                    val authorPart = if (subsAuthor.isNotBlank()) " · $subsAuthor" else ""
+                                    val finalQuality = "$embedHost $qMatch$authorPart${buildLangLabel(audio, subs)}"
                                     Video(video.url, finalQuality, video.videoUrl, video.headers)
                                 }.let { vids ->
                                     filterVideosByPreference(vids)
@@ -1146,6 +1158,28 @@ class Shinden :
 
             SourceMeta(host, quality, audio, subs) to loadUrl
         }
+    }
+
+    private fun langAbbrev(full: String): String = when {
+        full.contains("Japoński", ignoreCase = true) -> "JP"
+        full.contains("Polski", ignoreCase = true) -> "PL"
+        full.contains("Angielski", ignoreCase = true) -> "EN"
+        full.contains("Niemiecki", ignoreCase = true) -> "DE"
+        full.contains("Hiszpański", ignoreCase = true) -> "ES"
+        full.contains("Francuski", ignoreCase = true) -> "FR"
+        full.contains("Włoski", ignoreCase = true) -> "IT"
+        full.contains("Portugalski", ignoreCase = true) -> "PT"
+        full.contains("Koreański", ignoreCase = true) -> "KO"
+        full.contains("Chiński", ignoreCase = true) -> "ZH"
+        full.isBlank() -> ""
+        else -> full.take(2).uppercase()
+    }
+
+    private fun buildLangLabel(audio: String, subs: String): String {
+        val parts = mutableListOf<String>()
+        if (audio.isNotBlank()) parts.add("\uD83C\uDF99\uFE0F ${langAbbrev(audio)}")
+        if (subs.isNotBlank() && !subs.contains("--")) parts.add("\uD83D\uDCDD ${langAbbrev(subs)}")
+        return if (parts.isNotEmpty()) " ${parts.joinToString(" \u00B7 ")}" else ""
     }
 
     private fun buildPrefix(audio: String, subs: String): String {
@@ -1393,7 +1427,9 @@ class Shinden :
     private fun List<Video>.sortInternal(): List<Video> {
         val serversStr = preferences.getString("preferred_servers_list", "") ?: ""
         val servers = serversStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        val prefInt = (preferences.getString("preferred_quality", "1080") ?: "1080").toIntOrNull()
+        val prefQuality = preferences.getString("preferred_quality", "1080") ?: "1080"
+        val prefInt = prefQuality.toIntOrNull()
+        val prefIsAuto = prefQuality.equals("auto", ignoreCase = true)
 
         val embedRegex = Regex("\\(([^)]+)\\)")
         val groupMap = mutableMapOf<String, MutableList<Video>>()
@@ -1420,17 +1456,46 @@ class Shinden :
             }
         }
 
-        // Without preferred servers, lift sources containing the preferred quality to the top
-        if (servers.isEmpty() && prefInt != null) {
-            val qualityRegex = Regex("""\b${prefInt}p\b""", RegexOption.IGNORE_CASE)
+        val qualityNumRegex = Regex("""\b(\d+)p\b""", RegexOption.IGNORE_CASE)
+        fun numericP(q: String): Int = qualityNumRegex.find(q)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        fun isAuto(q: String): Boolean = q.contains("auto", ignoreCase = true)
+        fun exactPref(q: String): Boolean = when {
+            prefIsAuto -> isAuto(q)
+            prefInt != null -> Regex("""\b${prefInt}p\b""", RegexOption.IGNORE_CASE).containsMatchIn(q)
+            else -> false
+        }
+
+        fun closestDist(q: String): Int {
+            if (prefInt == null || prefIsAuto || isAuto(q)) return Int.MAX_VALUE
+            return kotlin.math.abs(numericP(q) - prefInt)
+        }
+
+        fun intraSort(videos: List<Video>): List<Video> = videos.sortedWith(compareBy<Video> { v ->
+            val q = v.quality
+            when {
+                exactPref(q) -> 0
+                closestDist(q) < Int.MAX_VALUE -> 10000 + closestDist(q)
+                isAuto(q) -> 20000
+                else -> 30000
+            }
+        }.thenByDescending { v ->
+            if (isAuto(v.quality)) -1 else numericP(v.quality)
+        })
+
+        if (servers.isEmpty()) {
             return groupOrder
-                .sortedBy { host -> !groupMap.getValue(host).any { qualityRegex.containsMatchIn(it.quality) } }
-                .flatMap { groupMap.getValue(it) }
+                .sortedBy { host ->
+                    val vids = groupMap.getValue(host)
+                    if (vids.any { exactPref(it.quality) }) 0
+                    else if (prefInt != null && !prefIsAuto) 10000 + (vids.minOfOrNull { closestDist(it.quality) } ?: Int.MAX_VALUE)
+                    else 20000
+                }
+                .flatMap { intraSort(groupMap.getValue(it)) }
         }
 
         return groupOrder
             .sortedBy { getPriority(it) }
-            .flatMap { groupMap[it].orEmpty() }
+            .flatMap { intraSort(groupMap[it].orEmpty()) }
     }
 
     // ================================ Preferences =================================
@@ -1559,6 +1624,29 @@ class Shinden :
                 )
                 true
             }
+        }.let(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = "filter_language"
+            title = "🎧 Filtr języka"
+            summary = "Pomijaj źródła według języka dźwięku i napisów"
+            setDefaultValue(false)
+        }.let(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = "hide_no_subs"
+            title = " Ukryj źródła bez napisów"
+            summary = "Źródła bez napisów nie będą wyświetlane"
+            setDefaultValue(false)
+        }.let(screen::addPreference)
+
+        MultiSelectListPreference(screen.context).apply {
+            key = "allowed_audio_langs"
+            title = "Dozwolone języki dźwięku"
+            summary = "Źródła z innym językiem dźwięku zostaną pominięte"
+            entries = arrayOf("Japoński", "Polski", "Angielski", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
+            entryValues = arrayOf("Japoński", "Polski", "Angielski", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
+            setDefaultValue(emptySet())
         }.let(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
