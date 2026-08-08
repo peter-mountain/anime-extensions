@@ -1642,16 +1642,16 @@ class Shinden :
             title = "📝 Dozwolone języki napisów"
             summary = "Źródła z innym językiem napisów (lub bez) zostaną pominięte"
             entries = arrayOf("Polski", "Angielski", "Japoński", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
-            entryValues = arrayOf("Polski", "Angielski", "Japoński", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
+            entryValues = arrayOf("pl", "en", "jp", "de", "es", "fr", "it", "ko")
             setDefaultValue(emptySet<String>())
         }.let(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
             key = "allowed_audio_langs"
-            title = "Dozwolone języki dźwięku"
+            title = "🎧 Dozwolone języki dźwięku"
             summary = "Źródła z innym językiem dźwięku zostaną pominięte"
             entries = arrayOf("Japoński", "Polski", "Angielski", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
-            entryValues = arrayOf("Japoński", "Polski", "Angielski", "Niemiecki", "Hiszpański", "Francuski", "Włoski", "Koreański")
+            entryValues = arrayOf("jp", "pl", "en", "de", "es", "fr", "it", "ko")
             setDefaultValue(emptySet<String>())
         }.let(screen::addPreference)
 
