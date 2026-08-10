@@ -23,7 +23,7 @@ dependencies {
     implementation(project(':lib:sibnetextractor'))
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:streamupextractor'))
-    implementation(project(':lib:vkextractor'))
+    implementation(project(':NewAndModifiedExtractors:Vk'))
     implementation(project(':lib:universalextractor'))
     implementation(project(':lib:m3u8server'))
     implementation(project(':NewAndModifiedExtractors:Flyfile'))
