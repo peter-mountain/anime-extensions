@@ -138,14 +138,21 @@ class CdaExtractor(private val client: OkHttpClient) {
             }
         }
 
-        // Legacy direct file (old videos may still have this)
+        // Direct URL (newer CDA: file is already a full URL)
         if (data.video.file.isNotBlank() && results.isEmpty()) {
-            try {
-                val decryptedUrl = decryptFile(data.video.file)
-                ExtLog.d(TAG, "CDA: legacy decrypted -> $decryptedUrl")
-                results.add(Video(decryptedUrl, "${prefix}cda.pl - ${data.video.quality}", decryptedUrl, cdaHeaders))
-            } catch (e: Exception) {
-                ExtLog.e(TAG, "CDA: DECRYPT FAILED: ${e.message}")
+            if (data.video.file.startsWith("https://")) {
+                ExtLog.d(TAG, "CDA: direct URL -> ${data.video.file}")
+                val label = if (data.video.file.contains("/hls/")) "auto" else data.video.quality
+                results.add(Video(data.video.file, "${prefix}cda.pl - $label", data.video.file, cdaHeaders))
+            } else {
+                // Legacy encoded filename (older CDA)
+                try {
+                    val decryptedUrl = decryptFile(data.video.file)
+                    ExtLog.d(TAG, "CDA: legacy decrypted -> $decryptedUrl")
+                    results.add(Video(decryptedUrl, "${prefix}cda.pl - ${data.video.quality}", decryptedUrl, cdaHeaders))
+                } catch (e: Exception) {
+                    ExtLog.e(TAG, "CDA: DECRYPT FAILED: ${e.message}")
+                }
             }
         }
 
