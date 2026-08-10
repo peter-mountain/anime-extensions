@@ -1,82 +1,92 @@
 <div align="center">
 
-| Install on Aniyomi | Install on Anikku | Build | Discord |
-|:------------------:|:-----------------:|:-----:|:-------:|
-| [![Install](https://img.shields.io/badge/Click%20here%20to%20install%20repo-gray?style=flat&labelColor=red)](https://intradeus.github.io/http-protocol-redirector/?r=aniyomi://add-repo?url=https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json) | [![Install](https://img.shields.io/badge/Click%20here%20to%20install%20repo-gray?style=flat&labelColor=red)](https://intradeus.github.io/http-protocol-redirector/?r=anikku://add-repo?url=https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json) | ![CI](https://github.com/yuzono/anime-extensions/actions/workflows/build_push.yml/badge.svg) | [![Discord](https://img.shields.io/discord/1377136877491982366.svg?label=&labelColor=6A7EC2&color=7389D8&logo=discord&logoColor=FFFFFF)](https://discord.gg/85MZhUX688) |
+# 🇯🇵🇵🇱 Shinden Extension for Aniyomi
 
-[![Sponsor me on GitHub](https://custom-icon-badges.demolab.com/badge/-Sponsor-ea4aaa?style=for-the-badge&logo=heart&logoColor=white)](https://github.com/sponsors/cuong-tran "Sponsor me on GitHub")
+**Wtyczka do przeglądania i odtwarzania anime z [Shinden.pl](https://shinden.pl) w aplikacji [Aniyomi](https://github.com/aniyomiorg/aniyomi)**
 
-![Visitor Count](https://count.getloli.com/get/@yuzono?theme=capoo-2)
+[![Build](https://github.com/peter-mountain/anime-extensions/actions/workflows/build-shinden-release.yml/badge.svg)](https://github.com/peter-mountain/anime-extensions/actions)
+[![License](https://img.shields.io/github/license/peter-mountain/anime-extensions)](LICENSE)
+
 </div>
 
-# ![app icon](./.github/readme-images/app-icon.png)Anikku/Aniyomi Extensions
-Anikku/Aniyomi is a free and open source anime player for Android 6.0 and above.
+---
 
-This repository contains the available extension catalogues for the [Anikku](https://github.com/komikku-app/anikku) or [Aniyomi](https://github.com/aniyomiorg/aniyomi) forks.
+## O projekcie
 
-## Recommend App
+Shinden to wtyczka do Aniyomi, która udostępnia pełny katalog anime z polskiego serwisu [Shinden.pl](https://shinden.pl) — przeglądanie, wyszukiwanie, odtwarzanie z wybranego źródła oraz integrację z Twoją listą anime na Shinden.
 
-### [Anikku](https://github.com/komikku-app/anikku)
+---
 
-### [Aniyomi](https://github.com/aniyomiorg/aniyomi)
+## ✨ Funkcje
 
-## How to add the repo
+- **Przeglądanie i wyszukiwanie** — katalog Shinden.pl, filtry (typ, status, gatunek, litera, liczba odcinków), sortowanie.
+- **Moje anime** — integracja z listą użytkownika, filtrowanie po statusie (oglądam, obejrzane, planuję, itp.)
+- **20+ ekstraktorów** — CDA, Google Drive, Mega.nz, Bysesukior, Filemoon, Luluvid, Uqload i inne
+- **Logowanie** — do Shinden (lista anime, profil) oraz Google Drive (prywatne materiały)
+- **Konfigurowalne ustawienia** — preferowane serwery, pomijane domeny, jakość wideo
 
-**If you are new to repository/extensions, please read the [Yūzōnō Getting Started guide](https://yuzono.github.io/docs/guides/getting-started#adding-the-extension-repo) first.**
+---
 
-* You can add our repo by visiting the [Yūzōnō Website](https://yuzono.github.io/add-repo-ani)
-* Otherwise, copy & paste the following URL:
+## 📥 Wymagania
 
-```html
-https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json
+- Android 6.0+
+- [Aniyomi](https://github.com/aniyomiorg/aniyomi)
+  
+> Instrukcja instalacji wtyczki zostanie dodana wraz z publikacją repozytorium dystrybucyjnego.
+
+---
+
+## ⚙️ Ustawienia
+
+| Ustawienie | Opis |
+|-----------|------|
+| Konto Shinden | Logowanie / wylogowanie, podgląd profilu |
+| Zaloguj do Google Drive | Logowanie Google — wymagane dla prywatnych materiałów |
+| Preferowane serwery | Kolejność priorytetu serwerów wideo (przeciągnij aby zmienić) |
+| Pomiń domeny | Pomijanie nie działających serwerów (domyślnie: hqq.tv, luluvid.com, vk.com, dailymotion) |
+| Wyświetlanie źródeł wideo | Wszystkie / Auto + najwyższa / Tylko najwyższa |
+| Preferowana jakość | Auto, 1080p, 720p, 480p, 360p 
+| Szczegółowe logi | Logowanie diagnostyczne do `logcat` (domyślnie wyłączone) |
+| Pokazuj puste źródła | Wyświetlaj serwery które zwróciły 0 wideo (domyślnie ukryte) |
+
+### Raportowanie błędów
+
+Jeśli problem nie zniknie, zbierz logi i otwórz [issue](https://github.com/peter-mountain/anime-extensions/issues):
+
+1. Ustawienia → Szczegółowe logi → włącz
+2. Odtwórz problem
+3. Zbierz logcat: `adb logcat -s ShindenExt`
+4. Dołącz log do issue
+
+---
+
+## 🔧 Budowanie z kodu źródłowego
+
+```bash
+git clone https://github.com/peter-mountain/anime-extensions.git
+cd anime-extensions
+./gradlew :src:pl:shinden:assembleDebug
 ```
 
-### Manual downloads
+APK pojawi się w `src/pl/shinden/build/outputs/apk/debug/`
 
-If you prefer to directly download the APK files, they are available via [website](https://yuzono.github.io/extensions-aniyomi/) or directly in this GitHub repository in the [`repo` branch](https://github.com/yuzono/anime-repo/tree/repo/apk).
+---
 
-## Requests
+## 📄 Licencja
 
-To request a new source or bug fix, [create an issue](https://github.com/yuzono/aniyomi-extensions/issues/new/choose).
+Projekt jest na licencji **Apache License 2.0** (patrz [LICENSE](LICENSE)). Stanowi rozwidlenie [yuzono/anime-extensions](https://github.com/yuzono/anime-extensions).
 
-Please note that creating an issue does not mean that the source will be added or fixed in a timely
-fashion, because the work is volunteer-based. Some sources may also be impossible to do or prohibitively
-difficult to maintain.
+## 🙏 Podziękowania
 
-If you would like to see a request fulfilled and have the necessary skills to do so, consider contributing!
-Issues are up-for-grabs for any developer if there is no assigned user already.
+Struktura danych i przepływ informacji na stronie Shinden.pl został poznany dzięki projektom:
 
-## Contributing
+- [kosmateus/shinden4j](https://github.com/kosmateus/shinden4j) — klient API Shinden w Javie
+- [Tsugumik/shinden-pl-api-rs](https://github.com/Tsugumik/shinden-pl-api-rs) — klient API Shinden w Rust
 
-Contributions are welcome!
+---
 
-Check out the repo's [issue backlog](https://github.com/yuzono/anime-extensions/issues) for source requests and bug reports.
+## ⚠️ Zastrzeżenie
 
-To get started with development, see [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-It might also be good to read our [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
-
-## License
-
-    Copyright 2015 Javier Tomás
-
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
-
-## Disclaimer
-
-This project does not have any affiliation with the content providers available.
-
-This project is not affiliated with Anikku/Aniyomi. Don't ask for help about these extensions at the
-official support means of Anikku/Aniyomi. All credits to the codebase goes to the original contributors.
-
-The developer of this application does not have any affiliation with the content providers available.
+- Ten projekt nie jest powiązany z Shinden.pl ani żadnymi dostawcami treści
+- Ten projekt nie jest oficjalną wtyczką Aniyomi/Anikku
+- Wszystkie znaki towarowe należą do ich właścicieli
