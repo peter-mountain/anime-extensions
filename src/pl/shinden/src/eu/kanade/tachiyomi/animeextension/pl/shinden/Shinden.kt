@@ -23,6 +23,7 @@ import aniyomi.lib.streamupextractor.StreamupExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vidaraextractor.VidaraExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -747,6 +748,7 @@ class Shinden :
     internal val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     internal val okruExtractor by lazy { OkruExtractor(client, headers) }
     internal val uqloadExtractor by lazy { UqloadExtractor(client) }
+    internal val vkExtractor by lazy { VkExtractor(client, headers) }
     internal val lycorisExtractor by lazy { LycorisCafeExtractor(client) }
     internal val streamupExtractor by lazy { StreamupExtractor(client) }
     internal val megaNzExtractor by lazy { MegaNzExtractor(client) }

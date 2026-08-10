@@ -161,7 +161,7 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
                             val embedHost = runCatching { embedUrl.toHttpUrl().host }.getOrDefault("?")
 
                             // Domain skip filter
-                            val skipDomains = preferences.getString("skip_domains_list", "hqq.tv,vk.com,lulu,facebook.com")?.trim() ?: ""
+                            val skipDomains = preferences.getString("skip_domains_list", "hqq.tv,lulu,facebook.com")?.trim() ?: ""
                             if (skipDomains.isNotBlank()) {
                                 val skipList = skipDomains.split(",").map { it.trim().lowercase() }
                                 if (skipList.any { embedHost.lowercase().contains(it) }) {
@@ -252,6 +252,9 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
 
                                 embedUrl.contains("dailymotion") ->
                                     dailymotionExtractor.videosFromUrl(embedUrl, prefix) to "Dailymotion"
+
+                                embedUrl.contains("vk.com") || embedUrl.contains("vkvideo.ru") ->
+                                    vkExtractor.videosFromUrl(embedUrl, prefix) to "Vk"
 
                                 else ->
                                     universalExtractor.videosFromUrl(embedUrl, headers, customQuality = "$host $quality", prefix = prefix) to "Universal"

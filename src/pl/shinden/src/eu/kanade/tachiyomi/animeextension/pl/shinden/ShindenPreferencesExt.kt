@@ -115,13 +115,13 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
     SwitchPreferenceCompat(screen.context).apply {
         key = "skip_domains"
         title = "Pomiń domeny"
-        summary = preferences.getString("skip_domains_list", "hqq.tv,vk.com,lulu,facebook.com")?.replace(",", ", ")
+        summary = preferences.getString("skip_domains_list", "hqq.tv,lulu,facebook.com")?.replace(",", ", ")
             ?.ifBlank { "Kliknij aby edytować" } ?: "Kliknij aby edytować"
         setOnPreferenceClickListener { pref ->
             ShindenListEditor.open(
                 context = screen.context,
                 title = "Pomiń domeny",
-                currentItems = preferences.getString("skip_domains_list", "hqq.tv,vk.com,lulu,facebook.com") ?: "",
+                currentItems = preferences.getString("skip_domains_list", "hqq.tv,lulu,facebook.com") ?: "",
                 allowReorder = false,
                 defaultSuggestions = listOf("hqq.tv", "vk.com", "luluvid.com", "facebook.com"),
                 onSave = { newDomains ->
