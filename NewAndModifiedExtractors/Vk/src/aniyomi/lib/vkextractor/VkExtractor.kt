@@ -103,6 +103,7 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
 
     private fun videoHeadersFor(referer: String): Headers = videoHeaders.newBuilder()
         .set("Referer", referer)
+        .set("User-Agent", CHROME_UA)
         .build()
 
     private fun parseVideoUrls(text: String): List<RawVideo> {
@@ -161,5 +162,9 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
     companion object {
         private const val VK_URL = "https://vk.com"
         private const val VK_API_URL = "https://vk.com/al_video.php?act=show"
+
+        // VK CDN signs URLs with srcAg=CHROME and rejects non-Chrome user agents (400).
+        // Aniyomi's default UA is Firefox, so override it for the video CDN requests.
+        private const val CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 }
