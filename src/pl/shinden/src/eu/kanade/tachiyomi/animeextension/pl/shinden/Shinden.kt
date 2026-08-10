@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.pl.shinden
 import android.app.Application
 import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.aparatextractor.AparatExtractor
 import aniyomi.lib.bysesukiorextractor.BysesukiorExtractor
 import aniyomi.lib.cdaextractor.CdaExtractor
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
@@ -741,6 +742,7 @@ class Shinden :
     internal val cdaExtractor by lazy { CdaExtractor(client) }
     internal val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     internal val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
+    internal val aparatExtractor by lazy { AparatExtractor(client) }
     internal val universalExtractor by lazy { UniversalExtractor(client) }
     internal val filemoonExtractor by lazy { FilemoonExtractor(client) }
     internal val doodExtractor by lazy { DoodExtractor(client) }

@@ -255,6 +255,8 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
 
                                 embedUrl.contains("vk.com") || embedUrl.contains("vkvideo.ru") ->
                                     vkExtractor.videosFromUrl(embedUrl, prefix) to "Vk"
+                                embedUrl.contains("aparat.com") || embedUrl.contains("aparat.") ->
+                                    aparatExtractor.videosFromUrl(embedUrl, prefix) to "Aparat"
 
                                 else ->
                                     universalExtractor.videosFromUrl(embedUrl, headers, customQuality = "$host $quality", prefix = prefix) to "Universal"
