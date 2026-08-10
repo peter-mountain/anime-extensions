@@ -1,0 +1,32 @@
+ext {
+    extName = 'Shinden'
+    extClass = '.Shinden'
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':NewAndModifiedExtractors:MegaNz'))
+    implementation(project(':NewAndModifiedExtractors:Vidara'))
+    implementation(project(':NewAndModifiedExtractors:Bysesukior'))
+    implementation(project(':NewAndModifiedExtractors:LycorisCafe'))
+    implementation(project(':NewAndModifiedExtractors:Uqload'))
+    implementation(project(':NewAndModifiedExtractors:Cda'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:gdriveplayerextractor'))
+    implementation(project(':NewAndModifiedExtractors:GoogleDrivePlayer'))
+    implementation(project(':lib:luluextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':NewAndModifiedExtractors:Okru'))
+    implementation(project(':lib:sibnetextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:streamupextractor'))
+    implementation(project(':lib:universalextractor'))
+    implementation(project(':NewAndModifiedExtractors:M3u8Server'))
+    implementation(project(':NewAndModifiedExtractors:Flyfile'))
+    implementation(project(':NewAndModifiedExtractors:ShareVideo'))
+    implementation(project(':NewAndModifiedExtractors:Playmate'))
+}
