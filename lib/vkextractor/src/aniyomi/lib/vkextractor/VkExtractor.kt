@@ -30,8 +30,9 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
 
         val apiVideos = getVideosViaApi(videoId)
         if (apiVideos.isNotEmpty()) {
+            val vHeaders = videoHeadersFor(url)
             return apiVideos.map {
-                Video(it.url, "${prefix}${it.quality}", it.url, videoHeaders)
+                Video(it.url, "${prefix}${it.quality}", it.url, vHeaders)
             }
         }
 
@@ -43,7 +44,7 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
         }
 
         val htmlContent = handleWafChallenge(embedUrl)
-        return extractVideosFromHtml(htmlContent, prefix)
+        return extractVideosFromHtml(htmlContent, prefix, embedUrl)
     }
 
     private suspend fun handleWafChallenge(url: String): String {
@@ -96,9 +97,13 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
         }
     }
 
-    private fun extractVideosFromHtml(html: String, prefix: String): List<Video> = parseVideoUrls(html).map {
-        Video(it.url, "${prefix}${it.quality}", it.url, videoHeaders)
+    private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> = parseVideoUrls(html).map {
+        Video(it.url, "${prefix}${it.quality}", it.url, videoHeadersFor(referer))
     }
+
+    private fun videoHeadersFor(referer: String): Headers = videoHeaders.newBuilder()
+        .set("Referer", referer)
+        .build()
 
     private fun parseVideoUrls(text: String): List<RawVideo> {
         val videos = mutableListOf<RawVideo>()
