@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.autoUnpacker
+import keiyoushi.utils.ExtLog
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.useAsJsoup
@@ -24,8 +25,15 @@ class VidHideExtractor(private val client: OkHttpClient, private val headers: He
     }
 
     suspend fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "VidHide - $quality" }): List<Video> {
-        val script = fetchAndExtractScript(url) ?: return emptyList()
+        ExtLog.d(TAG, "=== VidHide START === url=$url")
+        val script = fetchAndExtractScript(url)
+        if (script == null) {
+            ExtLog.e(TAG, "No packed JS found on page")
+            return emptyList()
+        }
+        ExtLog.d(TAG, "Script unpacked, len=${script.length}")
         val playlists = extractVideoUrl(script, url)
+        ExtLog.d(TAG, "Found ${playlists.size} m3u8 URLs: ${playlists.map { it.take(80) }}")
         val subtitleList = extractSubtitles(script, url)
 
         return playlists.parallelCatchingFlatMap { videoUrl ->
@@ -38,12 +46,35 @@ class VidHideExtractor(private val client: OkHttpClient, private val headers: He
         }
     }
 
-    private suspend fun fetchAndExtractScript(url: String): String? = client.newCall(GET(url, headers)).awaitSuccess()
-        .useAsJsoup()
-        .select("script")
-        .find { it.html().contains("eval(function(p,a,c,k,e,d)") }
-        ?.html()
-        ?.let(::autoUnpacker)
+    private suspend fun fetchAndExtractScript(url: String): String? {
+        ExtLog.d(TAG, "Fetching embed page...")
+        val doc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+        val scripts = doc.select("script")
+        ExtLog.d(TAG, "Found ${scripts.size} script tags")
+        for (s in scripts) {
+            val html = s.html()
+            if (html.length > 100) {
+                ExtLog.d(TAG, "Script tag len=${html.length}, hasPacked=${html.contains("eval(function(p,a,c,k,e,d)")}, preview=${html.take(120)}")
+            }
+        }
+        val packed = scripts.find { it.html().contains("eval(function(p,a,c,k,e,d)") }
+        if (packed == null) {
+            ExtLog.e(TAG, "No eval(function(p,a,c,k,e,d) found in any script tag")
+            // Log all script previews for debugging
+            scripts.filter { it.html().length > 50 }.forEachIndexed { i, s ->
+                ExtLog.d(TAG, "script[$i] len=${s.html().length}: ${s.html().take(200)}")
+            }
+            return null
+        }
+        ExtLog.d(TAG, "Found packed JS, unpacking...")
+        val unpacked = autoUnpacker(packed.html())
+        if (unpacked == null) {
+            ExtLog.e(TAG, "autoUnpacker returned null")
+            return null
+        }
+        ExtLog.d(TAG, "Unpacked len=${unpacked.length}, hasM3u8=${unpacked.contains("m3u8")}, preview=${unpacked.take(200)}")
+        return unpacked
+    }
 
     private fun extractVideoUrl(script: String, baseUrl: String): List<String> = sourceRegex
         .findAll(script).mapNotNull {
@@ -74,6 +105,7 @@ class VidHideExtractor(private val client: OkHttpClient, private val headers: He
     )
 
     companion object {
+        private const val TAG = "VidHide"
         // Capture both `https://domain/master.m3u8?query` and `/domain/master.m3u8?query`
         private val sourceRegex = Regex(""""((?:https?:/)?/[^"]*m3u8[^"]*)"""")
     }
