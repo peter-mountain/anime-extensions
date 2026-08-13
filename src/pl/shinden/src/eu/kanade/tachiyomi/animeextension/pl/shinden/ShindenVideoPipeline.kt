@@ -264,7 +264,7 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
 
                             val mapped = videos.map { video ->
                                 val extractorQuality = video.quality.substringAfterLast(" ").trim()
-                                val qualityPattern = Regex("""\b(\d+p|auto(?:\s*\([^)]*\))?)\b""", RegexOption.IGNORE_CASE)
+                                val qualityPattern = Regex("""\b(\d+p|auto(?:\s*\([^)]*\))?)(?!\w)""", RegexOption.IGNORE_CASE)
                                 val qMatch = qualityPattern.find(extractorQuality)?.value
                                     ?: qualityPattern.find(video.quality)?.value
                                     ?: quality
