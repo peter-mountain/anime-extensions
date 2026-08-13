@@ -71,33 +71,38 @@ class CdaExtractor(private val client: OkHttpClient) {
 
         val results = mutableListOf<Video>()
 
+        val hlsAuto = data.video.manifestApple
+        val dashManifest = data.video.manifest
+        val castManifest = data.video.manifestCast
+
+        // Highest quality the embed advertises: DASH MPD maxHeight first,
+        // then the qualities map. Used for truthful auto/DASH labels.
+        val embedMaxQuality = runCatching {
+            (dashManifest ?: castManifest)?.let { mpdMaxHeightLabel(it, cdaHeaders) }
+        }.getOrNull() ?: qualitiesMaxLabel(data.video.qualities)
+
         // HLS master manifest — adaptive quality (ExoPlayer picks best stream)
-        if (!data.video.manifestApple.isNullOrBlank()) {
-            ExtLog.d(TAG, "CDA: HLS auto -> ${data.video.manifestApple}")
-            results.add(Video(data.video.manifestApple, "${prefix}cda.pl - auto (max jakość)", data.video.manifestApple, cdaHeaders))
+        if (!hlsAuto.isNullOrBlank()) {
+            val autoLabel = embedMaxQuality ?: "auto"
+            ExtLog.d(TAG, "CDA: HLS auto -> $hlsAuto (max $autoLabel)")
+            results.add(Video(hlsAuto, "${prefix}cda.pl - auto ($autoLabel)", hlsAuto, cdaHeaders))
         }
 
         // DASH manifest — highest quality
-        if (!data.video.manifest.isNullOrBlank() && data.video.manifest != data.video.manifestApple) {
-            ExtLog.d(TAG, "CDA: DASH -> ${data.video.manifest}")
-            results.add(Video(data.video.manifest, "${prefix}cda.pl - 1080p", data.video.manifest, cdaHeaders))
+        if (!dashManifest.isNullOrBlank() && dashManifest != hlsAuto) {
+            val dashLabel = embedMaxQuality ?: "720p"
+            ExtLog.d(TAG, "CDA: DASH -> $dashManifest (label=$dashLabel)")
+            results.add(Video(dashManifest, "${prefix}cda.pl - $dashLabel", dashManifest, cdaHeaders))
         }
 
         // DASH cast manifest — CDA embeds without a dedicated DASH/HLS manifest
         // still expose an MPD for Chromecast; use it as the DASH source.
-        val castManifest = data.video.manifestCast
-        if (!castManifest.isNullOrBlank() && castManifest != data.video.manifest) {
-            val castLabel = runCatching {
-                val mpdResp = client.newCall(GET(castManifest, headers = cdaHeaders)).execute()
-                val mpdBody = mpdResp.body?.string().orEmpty()
-                Regex("""maxHeight="(\d+)"""")
-                    .find(mpdBody)?.groupValues?.get(1)?.let { "${it}p" }
-                    ?: data.video.qualities.keys
-                        .mapNotNull { Regex("""(\d{3,4})p""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
-                        .maxOrNull()
-                        ?.let { "${it}p" }
-                    ?: "720p"
-            }.getOrElse { "720p" }
+        if (!castManifest.isNullOrBlank() && castManifest != dashManifest) {
+            val castLabel = if (dashManifest.isNullOrBlank()) {
+                embedMaxQuality ?: "720p"
+            } else {
+                runCatching { mpdMaxHeightLabel(castManifest, cdaHeaders) }.getOrNull() ?: "720p"
+            }
             ExtLog.d(TAG, "CDA: DASH cast -> $castManifest (label=$castLabel)")
             results.add(Video(castManifest, "${prefix}cda.pl - $castLabel", castManifest, cdaHeaders))
         }
@@ -112,8 +117,9 @@ class CdaExtractor(private val client: OkHttpClient) {
                 "sd" to "720p",
                 "480" to "480p",
                 "mq" to "480p",
+                "lq" to "480p",
                 "360" to "360p",
-                "lq" to "360p",
+                "vl" to "360p",
             )
             for ((key, value) in data.video.qualities) {
                 if (results.any { it.quality.contains(qualityLabels[key] ?: key) }) continue
@@ -151,8 +157,13 @@ class CdaExtractor(private val client: OkHttpClient) {
                     if (body.isNotBlank()) {
                         val parsed = json.decodeFromString<PostResponse>(body)
                         val label = qualityLabels[key] ?: key
-                        ExtLog.d(TAG, "CDA: videoGetLink $key -> ${parsed.result.resp}")
-                        results.add(Video(parsed.result.resp, "${prefix}cda.pl - $label", parsed.result.resp, cdaHeaders))
+                        val newUrl = parsed.result.resp
+                        if (results.any { it.url == newUrl }) {
+                            ExtLog.d(TAG, "CDA: videoGetLink $key duplicate URL, skipping")
+                        } else {
+                            ExtLog.d(TAG, "CDA: videoGetLink $key -> $newUrl")
+                            results.add(Video(newUrl, "${prefix}cda.pl - $label", newUrl, cdaHeaders))
+                        }
                     } else {
                         ExtLog.d(TAG, "CDA: videoGetLink $key EMPTY BODY (code=${resp.code})")
                     }
@@ -166,7 +177,7 @@ class CdaExtractor(private val client: OkHttpClient) {
         if (data.video.file.isNotBlank() && results.isEmpty()) {
             if (data.video.file.startsWith("https://")) {
                 ExtLog.d(TAG, "CDA: direct URL -> ${data.video.file}")
-                val label = if (data.video.file.contains("/hls/")) "auto (max jakość)" else data.video.quality
+                val label = if (data.video.file.contains("/hls/")) "auto (${qualityLabelFor(data.video.quality)})" else data.video.quality
                 results.add(Video(data.video.file, "${prefix}cda.pl - $label", data.video.file, cdaHeaders))
             } else {
                 // Legacy encoded filename (older CDA)
@@ -182,6 +193,26 @@ class CdaExtractor(private val client: OkHttpClient) {
 
         ExtLog.d(TAG, "=== CDA END === returning ${results.size} videos")
         return results
+    }
+
+    private fun mpdMaxHeightLabel(mpdUrl: String, headers: Headers): String? = runCatching {
+        val mpdResp = client.newCall(GET(mpdUrl, headers = headers)).execute()
+        val mpdBody = mpdResp.body?.string().orEmpty()
+        Regex("""maxHeight="(\d+)"""")
+            .find(mpdBody)?.groupValues?.get(1)?.let { "${it}p" }
+    }.getOrNull()
+
+    private fun qualitiesMaxLabel(qualities: Map<String, String>): String? = qualities.keys
+        .mapNotNull { Regex("""(\d{3,4})p""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        .maxOrNull()
+        ?.let { "${it}p" }
+
+    private fun qualityLabelFor(code: String): String = when (code.lowercase()) {
+        "1080", "hd" -> "1080p"
+        "720", "sd" -> "720p"
+        "480", "mq", "lq" -> "480p"
+        "360", "vl" -> "360p"
+        else -> code
     }
 
     private fun decryptFile(a: String): String {
