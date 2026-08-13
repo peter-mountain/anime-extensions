@@ -72,7 +72,7 @@ class M3u8Integration(
         return videos.map { video ->
             when {
                 isM3u8Url(video.url) -> processManifestVideo(video, dash = false)
-                proxyDash(video) -> processManifestVideo(video, dash = true)
+                proxyDash(video) && isDashUrl(video.url) -> processManifestVideo(video, dash = true)
                 else -> video
             }
         }
@@ -87,6 +87,16 @@ class M3u8Integration(
         val m3u8Regex = Regex("""\.m3u8($|\?|#)""", RegexOption.IGNORE_CASE)
         return m3u8Regex.containsMatchIn(url) ||
             url.contains("application/vnd.apple.mpegurl", ignoreCase = true)
+    }
+
+    /**
+     * Checks if a URL is a DASH MPD file. Only real MPDs are routed through
+     * the DASH proxy; direct media (e.g. plain MP4 URLs) stay untouched so the
+     * player fetches them directly.
+     */
+    private fun isDashUrl(url: String): Boolean {
+        val mpdRegex = Regex("""\.mpd($|\?|#)""", RegexOption.IGNORE_CASE)
+        return mpdRegex.containsMatchIn(url)
     }
 
     /**
