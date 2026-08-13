@@ -3,7 +3,7 @@ package aniyomi.lib.cdaextractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.ExtLog
-import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.toJsonBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
@@ -83,8 +83,28 @@ class CdaExtractor(private val client: OkHttpClient) {
             results.add(Video(data.video.manifest, "${prefix}cda.pl - 1080p", data.video.manifest, cdaHeaders))
         }
 
+        // DASH cast manifest — CDA embeds without a dedicated DASH/HLS manifest
+        // still expose an MPD for Chromecast; use it as the DASH source.
+        val castManifest = data.video.manifestCast
+        if (!castManifest.isNullOrBlank() && castManifest != data.video.manifest) {
+            val castLabel = runCatching {
+                val mpdResp = client.newCall(GET(castManifest, headers = cdaHeaders)).execute()
+                val mpdBody = mpdResp.body?.string().orEmpty()
+                Regex("""maxHeight="(\d+)"""")
+                    .find(mpdBody)?.groupValues?.get(1)?.let { "${it}p" }
+                    ?: data.video.qualities.keys
+                        .mapNotNull { Regex("""(\d{3,4})p""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                        .maxOrNull()
+                        ?.let { "${it}p" }
+                    ?: "720p"
+            }.getOrElse { "720p" }
+            ExtLog.d(TAG, "CDA: DASH cast -> $castManifest (label=$castLabel)")
+            results.add(Video(castManifest, "${prefix}cda.pl - $castLabel", castManifest, cdaHeaders))
+        }
+
         // Quality options from qualities map (if available)
         if (data.video.qualities.isNotEmpty()) {
+            ExtLog.d(TAG, "CDA: qualities=${data.video.qualities.size} ${data.video.qualities.keys}")
             val qualityLabels = mapOf(
                 "1080" to "1080p",
                 "hd" to "1080p",
@@ -111,12 +131,14 @@ class CdaExtractor(private val client: OkHttpClient) {
                                 {}
                             ]
                         }
-                    """.trimIndent().toJsonRequestBody()
+                    """.trimIndent().toJsonBody()
                     val postHeaders = Headers.headersOf(
                         "Content-Type",
                         "application/json",
                         "X-Requested-With",
                         "XMLHttpRequest",
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
                     )
                     val resp = client.newCall(
                         okhttp3.Request.Builder()
@@ -131,6 +153,8 @@ class CdaExtractor(private val client: OkHttpClient) {
                         val label = qualityLabels[key] ?: key
                         ExtLog.d(TAG, "CDA: videoGetLink $key -> ${parsed.result.resp}")
                         results.add(Video(parsed.result.resp, "${prefix}cda.pl - $label", parsed.result.resp, cdaHeaders))
+                    } else {
+                        ExtLog.d(TAG, "CDA: videoGetLink $key EMPTY BODY (code=${resp.code})")
                     }
                 } catch (e: Exception) {
                     ExtLog.d(TAG, "CDA: videoGetLink $key FAILED: ${e.message}")
@@ -142,7 +166,7 @@ class CdaExtractor(private val client: OkHttpClient) {
         if (data.video.file.isNotBlank() && results.isEmpty()) {
             if (data.video.file.startsWith("https://")) {
                 ExtLog.d(TAG, "CDA: direct URL -> ${data.video.file}")
-                val label = if (data.video.file.contains("/hls/")) "auto" else data.video.quality
+                val label = if (data.video.file.contains("/hls/")) "auto (max jakość)" else data.video.quality
                 results.add(Video(data.video.file, "${prefix}cda.pl - $label", data.video.file, cdaHeaders))
             } else {
                 // Legacy encoded filename (older CDA)
@@ -199,6 +223,8 @@ class CdaExtractor(private val client: OkHttpClient) {
             val manifestApple: String? = null,
             @kotlinx.serialization.SerialName("manifest")
             val manifest: String? = null,
+            @kotlinx.serialization.SerialName("manifest_cast")
+            val manifestCast: String? = null,
         )
     }
 
