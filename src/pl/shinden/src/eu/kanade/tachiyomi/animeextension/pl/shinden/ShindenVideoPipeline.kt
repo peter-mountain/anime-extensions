@@ -265,9 +265,12 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
                             val mapped = videos.map { video ->
                                 val extractorQuality = video.quality.substringAfterLast(" ").trim()
                                 val qualityPattern = Regex("""\b(\d+p|auto(?:\s*\([^)]*\))?)(?!\w)""", RegexOption.IGNORE_CASE)
-                                val qMatch = qualityPattern.find(extractorQuality)?.value
-                                    ?: qualityPattern.find(video.quality)?.value
-                                    ?: quality
+                                // For labels like "auto (1080p)" the last token is a bare
+                                // parenthesized suffix ("(1080p)") that would match the
+                                // numeric alternative alone; scan the full label instead.
+                                val qMatch = qualityPattern.find(
+                                    if (extractorQuality.startsWith("(")) video.quality else extractorQuality,
+                                )?.value ?: qualityPattern.find(video.quality)?.value ?: quality
                                 val authorPart = if (subsAuthor.isNotBlank()) " · $subsAuthor" else ""
                                 val finalQuality = "$embedHost $qMatch$authorPart${buildLangLabel(audio, subs)}"
                                 Video(video.url, finalQuality, video.videoUrl, video.headers)
