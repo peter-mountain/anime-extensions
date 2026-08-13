@@ -68,6 +68,16 @@ class M3u8ServerManager(
     fun processM3u8Url(m3u8Url: String, referer: String? = null, userAgent: String? = null): String? = server?.createLocalUrl(m3u8Url, referer, userAgent)
 
     /**
+     * Processes a DASH MPD through the server.
+     *
+     * @param dashUrl Original MPD URL
+     * @param referer optional Referer to encode into the proxied URL
+     * @param userAgent optional User-Agent to encode alongside the referer
+     * @return Processed MPD content as a local URL string
+     */
+    fun processDashUrl(dashUrl: String, referer: String? = null, userAgent: String? = null): String? = server?.createDashUrl(dashUrl, referer, userAgent)
+
+    /**
      * Processes a segment through the server
      * @param segmentUrl Original segment URL
      * @param headers Optional headers to use for the request

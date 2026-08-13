@@ -264,9 +264,9 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
 
                             val mapped = videos.map { video ->
                                 val extractorQuality = video.quality.substringAfterLast(" ").trim()
-                                val qMatch = Regex("""\b(\d+p|auto)\b""", RegexOption.IGNORE_CASE)
-                                    .find(extractorQuality)?.value
-                                    ?: Regex("""\b(\d+p)\b""", RegexOption.IGNORE_CASE).find(video.quality)?.value
+                                val qualityPattern = Regex("""\b(\d+p|auto(?:\s*\([^)]*\))?)\b""", RegexOption.IGNORE_CASE)
+                                val qMatch = qualityPattern.find(extractorQuality)?.value
+                                    ?: qualityPattern.find(video.quality)?.value
                                     ?: quality
                                 val authorPart = if (subsAuthor.isNotBlank()) " · $subsAuthor" else ""
                                 val finalQuality = "$embedHost $qMatch$authorPart${buildLangLabel(audio, subs)}"
@@ -295,7 +295,9 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
             }.awaitAll().flatten()
         }
     }.let { result ->
-        val processed = m3u8Integration.processVideoList(result)
+        val processed = m3u8Integration.processVideoList(result) { video ->
+            video.quality.contains("cda.pl", ignoreCase = true)
+        }
         val showEmpty = preferences.getBoolean("show_empty_sources", false)
         val filtered = if (!showEmpty) {
             processed.filter { !it.url.startsWith("about:blank") }

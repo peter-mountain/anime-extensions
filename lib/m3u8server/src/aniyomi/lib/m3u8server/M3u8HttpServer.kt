@@ -80,6 +80,7 @@ class M3u8HttpServer(
 
         val response = when {
             uri.startsWith("/m3u8") -> handleM3u8Request(session)
+            uri.startsWith("/dash") -> handleDashRequest(session)
             uri.startsWith("/segment") -> handleSegmentRequest(session)
             uri.startsWith("/health") -> handleHealthRequest()
             else -> {
@@ -120,15 +121,43 @@ class M3u8HttpServer(
         }
     }
 
-    private fun handleSegmentRequest(session: IHTTPSession): Response {
+    private fun handleDashRequest(session: IHTTPSession): Response {
         val url = session.parameters["url"]?.first()
-        val keyUrl = session.parameters["key"]?.first()
-        val iv = session.parameters["iv"]?.first()
         val fallbackReferer = session.parameters["referer"]?.first()
         val fallbackUserAgent = session.parameters["useragent"]?.first()
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
-        Log.d(tag, "Processing segment request for URL: $url (key=${keyUrl != null}, iv=${iv != null})")
+        Log.d(tag, "Processing DASH request for URL: $url")
+
+        if (url.isNullOrBlank()) {
+            Log.w(tag, "Missing URL parameter in DASH request")
+            return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
+        }
+
+        return try {
+            Log.d(tag, "Starting DASH processing for: $url")
+            val processedContent = runBlocking { processDashContent(url, headers) }
+            Log.d(tag, "DASH processing completed successfully, content length: ${processedContent.length}")
+            newFixedLengthResponse(Status.OK, "application/dash+xml", processedContent)
+        } catch (e: UpstreamStatusException) {
+            Log.w(tag, "Upstream HTTP ${e.code} for $url: ${e.message}")
+            passThroughStatus(e)
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing DASH: ${e.message}", e)
+            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+        }
+    }
+
+    private fun handleSegmentRequest(session: IHTTPSession): Response {
+        val url = session.parameters["url"]?.first()
+        val keyUrl = session.parameters["key"]?.first()
+        val iv = session.parameters["iv"]?.first()
+        val isDash = session.parameters["dash"]?.first() == "1"
+        val fallbackReferer = session.parameters["referer"]?.first()
+        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
+
+        Log.d(tag, "Processing segment request for URL: $url (key=${keyUrl != null}, iv=${iv != null}, dash=$isDash)")
         Log.d(tag, "Headers: $headers")
 
         if (url.isNullOrBlank()) {
@@ -138,13 +167,32 @@ class M3u8HttpServer(
 
         val hasAes = keyUrl != null && iv != null
         return try {
-            Log.d(tag, "Starting segment processing for: $url (aes=$hasAes)")
-            val segmentData = runBlocking {
-                processSegmentUrl(url, headers, keyUrl, iv)
+            if (isDash) {
+                val range = session.headers["range"]
+                val dashSegment = runBlocking { fetchDashSegmentBytes(url, headers, range) }
+                Log.d(tag, "DASH segment processed, size: ${dashSegment.bytes.size}, upstream=${dashSegment.httpCode}, range=${range ?: "full"}")
+                val response = newFixedLengthResponse(
+                    if (dashSegment.httpCode == 206) Status.PARTIAL_CONTENT else Status.OK,
+                    "video/mp4",
+                    ByteArrayInputStream(dashSegment.bytes),
+                    dashSegment.bytes.size.toLong(),
+                )
+                if (dashSegment.contentRange != null) {
+                    response.addHeader("Content-Range", dashSegment.contentRange)
+                }
+                if (range != null) {
+                    response.addHeader("Accept-Ranges", "bytes")
+                }
+                response
+            } else {
+                Log.d(tag, "Starting segment processing for: $url (aes=$hasAes)")
+                val segmentData = runBlocking {
+                    processSegmentUrl(url, headers, keyUrl, iv)
+                }
+                Log.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
+                val inputStream = ByteArrayInputStream(segmentData)
+                newChunkedResponse(Status.OK, "video/mp2t", inputStream)
             }
-            Log.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
-            val inputStream = ByteArrayInputStream(segmentData)
-            newChunkedResponse(Status.OK, "video/mp2t", inputStream)
         } catch (e: UpstreamStatusException) {
             Log.w(tag, "Upstream segment HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
@@ -274,6 +322,33 @@ class M3u8HttpServer(
     }
 
     /**
+     * Process DASH MPD content through the server: fetch upstream, rewrite
+     * segment references (BaseURL / SegmentTemplate / SegmentURL) to local
+     * `/segment` URLs so every segment fetch re-issues the extension's
+     * headers and picks up fresh CDN state.
+     */
+    private suspend fun processDashContent(url: String, headers: Map<String, String> = emptyMap()): String = withContext(Dispatchers.IO) {
+        try {
+            Log.d(tag, "Fetching DASH MPD content from: $url with headers: $headers")
+            val dashContent = fetchM3u8Content(url, headers)
+            Log.d(tag, "Original DASH MPD content length: ${dashContent.length}")
+
+            val referer = headers["referer"]
+            val userAgent = headers["user-agent"]
+            val modifiedContent = modifyMpdContent(dashContent, url, port, referer, userAgent)
+            Log.d(tag, "Modified DASH MPD content length: ${modifiedContent.length}")
+
+            modifiedContent
+        } catch (e: UpstreamStatusException) {
+            Log.w(tag, "Upstream ${e.code} propagating from processDashContent for $url")
+            throw e
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing DASH MPD: ${e.message}", e)
+            throw UpstreamStatusException(503, url, "Error processing dash: ${e.message}", e)
+        }
+    }
+
+    /**
      * Process segment with automatic detection. When [keyUrl] and [iv] are
      * both supplied, the segment is treated as AES-128-CBC encrypted (the
      * `#EXT-X-KEY:METHOD=AES-128` playlist path) and the bytes are decrypted
@@ -326,6 +401,35 @@ class M3u8HttpServer(
                 throw UpstreamStatusException(response.code, url, "Failed to fetch segment")
             }
             response.body.bytes()
+        }
+    }
+
+    private data class DashSegment(val bytes: ByteArray, val httpCode: Int, val contentRange: String?)
+
+    /**
+     * Fetches a DASH (MPD) segment through the same upstream path as HLS
+     * segments, so the extension's headers (Referer / UA encoded in the local
+     * URL) are re-issued on every request. Optional [Range] requests are
+     * forwarded upstream and passed through (206 + Content-Range) for
+     * on-demand profiles that use `SegmentBase`/`indexRange`.
+     */
+    private suspend fun fetchDashSegmentBytes(url: String, headers: Map<String, String>, range: String?): DashSegment = withContext(Dispatchers.IO) {
+        Log.d(tag, "Fetching DASH segment: $url range=${range ?: "full"}")
+
+        val requestBuilder = Request.Builder().url(url)
+        headers.forEach { (key, value) ->
+            requestBuilder.addHeader(key, value)
+        }
+        if (!range.isNullOrBlank()) {
+            requestBuilder.addHeader("Range", range)
+        }
+
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (response.code != 200 && response.code != 206) {
+                Log.e(tag, "Failed to fetch DASH segment, HTTP code: ${response.code}")
+                throw UpstreamStatusException(response.code, url, "Failed to fetch dash segment")
+            }
+            DashSegment(response.body.bytes(), response.code, response.header("Content-Range"))
         }
     }
 
@@ -483,6 +587,159 @@ class M3u8HttpServer(
         }
         return sb.toString()
     }
+
+    /**
+     * Creates a local DASH URL that re-enters this server at `/dash`, with
+     * the extension's [referer] / [userAgent] attached the same way as
+     * [createLocalUrl] so upstream fetches keep the right headers.
+     */
+    fun createDashUrl(
+        dashUrl: String,
+        referer: String? = null,
+        userAgent: String? = null,
+    ): String {
+        val sb = StringBuilder("http://localhost:$port/dash?url=")
+            .append(URLEncoder.encode(dashUrl, Charsets.UTF_8.name()))
+        if (!referer.isNullOrBlank()) {
+            sb.append("&referer=").append(URLEncoder.encode(referer, Charsets.UTF_8.name()))
+        }
+        if (!userAgent.isNullOrBlank()) {
+            sb.append("&useragent=").append(URLEncoder.encode(userAgent, Charsets.UTF_8.name()))
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Rewrites DASH MPD segment references to local `/segment` URLs.
+     *
+     * Supported patterns: `<BaseURL>`, `<SegmentTemplate media/initialization>`
+     * (placeholders like `$Number$` / `$Time$` / `$Bandwidth$` /
+     * `$RepresentationID$` are preserved unencoded so the player can still
+     * substitute them) and `<SegmentList>/<SegmentURL media>`. Local URLs are
+     * XML-escaped for the attribute context.
+     *
+     * Manifests that match no known pattern are returned unchanged, so an
+     * unexpected MPD degrades to the previous direct-fetch behaviour instead
+     * of failing.
+     */
+    private fun modifyMpdContent(
+        content: String,
+        originalUrl: String,
+        serverPort: Int,
+        referer: String? = null,
+        userAgent: String? = null,
+    ): String {
+        Log.d(tag, "Modifying DASH MPD content for server port: $serverPort (referer=${referer?.take(80) ?: "none"})")
+        val mpdBase = originalUrl.toHttpUrlOrNull()
+        var representationBase: String? = null
+
+        fun resolve(uri: String): String {
+            val base = representationBase?.toHttpUrlOrNull() ?: mpdBase
+            return runCatching { base?.resolve(uri)?.toString() }.getOrNull() ?: uri
+        }
+
+        var result = content
+
+        // <BaseURL>…</BaseURL> — proxy it and remember it for relative resolution
+        val baseUrlRegex = Regex("""<BaseURL>([^<]*)</BaseURL>""")
+        result = baseUrlRegex.replace(result) { m ->
+            val raw = m.groupValues[1].trim()
+            if (raw.isBlank()) {
+                m.value
+            } else {
+                val resolved = resolve(raw)
+                if (representationBase == null) representationBase = resolved
+                "<BaseURL>${xmlEscapeAttr(createLocalDashSegmentUrl(serverPort, resolved, keepPlaceholders = false, referer, userAgent))}</BaseURL>"
+            }
+        }
+
+        fun rewriteAttribute(tagPattern: String, attribute: String, keepPlaceholders: Boolean): String {
+            val tagRegex = Regex(tagPattern)
+            return tagRegex.replace(result) { m ->
+                val tag = m.value
+                val attrRegex = Regex("""\b$attribute\s*=\s*"([^"]*)"""")
+                val attrMatch = attrRegex.find(tag) ?: return@replace m.value
+                val rawValue = attrMatch.groupValues[1].trim()
+                if (rawValue.isBlank()) {
+                    return@replace m.value
+                }
+                val resolved = resolve(rawValue)
+                val local = createLocalDashSegmentUrl(serverPort, resolved, keepPlaceholders, referer, userAgent)
+                tag.replaceFirst(attrRegex, """$attribute="${xmlEscapeAttr(local)}"""")
+            }
+        }
+
+        // SegmentTemplate media/initialization + SegmentList SegmentURL media
+        result = rewriteAttribute("""<SegmentTemplate\b[^>]*>""", "media", keepPlaceholders = true)
+        result = rewriteAttribute("""<SegmentTemplate\b[^>]*>""", "initialization", keepPlaceholders = true)
+        result = rewriteAttribute("""<SegmentURL\b[^>]*>""", "media", keepPlaceholders = false)
+
+        Log.d(tag, "Modified DASH MPD content")
+        return result
+    }
+
+    private fun createLocalDashSegmentUrl(
+        serverPort: Int,
+        segmentUrl: String,
+        keepPlaceholders: Boolean,
+        referer: String? = null,
+        userAgent: String? = null,
+    ): String {
+        val encodedUrl = if (keepPlaceholders) {
+            encodeKeepingDashPlaceholders(segmentUrl)
+        } else {
+            URLEncoder.encode(segmentUrl, Charsets.UTF_8.name())
+        }
+        return buildString {
+            append("http://localhost:$serverPort/segment?url=$encodedUrl&dash=1")
+            if (!referer.isNullOrBlank()) {
+                append("&referer=")
+                append(URLEncoder.encode(referer, Charsets.UTF_8.name()))
+            }
+            if (!userAgent.isNullOrBlank()) {
+                append("&useragent=")
+                append(URLEncoder.encode(userAgent, Charsets.UTF_8.name()))
+            }
+        }
+    }
+
+    /**
+     * URL-encodes a DASH segment URL while keeping `$Token$` placeholders
+     * unencoded, so the player can still substitute `$Number$` etc. inside
+     * the local `/segment?url=` query before the request is made.
+     */
+    private fun encodeKeepingDashPlaceholders(value: String): String {
+        val sb = StringBuilder()
+        var i = 0
+        while (i < value.length) {
+            val start = value.indexOf('$', i)
+            if (start == -1) {
+                sb.append(URLEncoder.encode(value.substring(i), Charsets.UTF_8.name()))
+                break
+            }
+            val end = value.indexOf('$', start + 1)
+            if (end == -1) {
+                sb.append(URLEncoder.encode(value.substring(i), Charsets.UTF_8.name()))
+                break
+            }
+            if (end == start + 1) {
+                // "$$" is a literal dollar in DASH templates
+                sb.append(URLEncoder.encode("$", Charsets.UTF_8.name()))
+                i = end + 1
+                continue
+            }
+            sb.append(URLEncoder.encode(value.substring(i, start), Charsets.UTF_8.name()))
+            sb.append(value.substring(start, end + 1))
+            i = end + 1
+        }
+        return sb.toString()
+    }
+
+    private fun xmlEscapeAttr(value: String): String = value
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
 
     private fun modifyM3u8Content(
         content: String,
