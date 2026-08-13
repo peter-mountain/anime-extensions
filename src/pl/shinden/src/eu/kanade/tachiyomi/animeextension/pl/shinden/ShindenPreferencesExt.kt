@@ -123,7 +123,7 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
                 title = "Pomiń domeny",
                 currentItems = preferences.getString("skip_domains_list", "hqq.tv,lulu,facebook.com") ?: "",
                 allowReorder = false,
-                defaultSuggestions = listOf("hqq.tv", "vk.com", "luluvid.com", "facebook.com"),
+                defaultSuggestions = listOf("hqq.tv", "luluvid.com", "facebook.com"),
                 onSave = { newDomains ->
                     preferences.edit().putString("skip_domains_list", newDomains).apply()
                     pref.summary = newDomains.replace(",", ", ").ifBlank { "Kliknij aby edytować" }
