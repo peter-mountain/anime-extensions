@@ -17,6 +17,7 @@ import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.GeneralSecurityException
 import javax.crypto.Cipher
@@ -94,9 +95,10 @@ class M3u8HttpServer(
     }
 
     private fun handleM3u8Request(session: IHTTPSession): Response {
-        val url = session.parameters["url"]?.first()
-        val fallbackReferer = session.parameters["referer"]?.first()
-        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val params = queryParams(session)
+        val url = params["url"]
+        val fallbackReferer = params["referer"]
+        val fallbackUserAgent = params["useragent"]
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
         Log.d(tag, "Processing M3U8 request for URL: $url")
@@ -122,9 +124,10 @@ class M3u8HttpServer(
     }
 
     private fun handleDashRequest(session: IHTTPSession): Response {
-        val url = session.parameters["url"]?.first()
-        val fallbackReferer = session.parameters["referer"]?.first()
-        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val params = queryParams(session)
+        val url = params["url"]
+        val fallbackReferer = params["referer"]
+        val fallbackUserAgent = params["useragent"]
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
         Log.d(tag, "Processing DASH request for URL: $url")
@@ -149,12 +152,13 @@ class M3u8HttpServer(
     }
 
     private fun handleSegmentRequest(session: IHTTPSession): Response {
-        val url = session.parameters["url"]?.first()
-        val keyUrl = session.parameters["key"]?.first()
-        val iv = session.parameters["iv"]?.first()
-        val isDash = session.parameters["dash"]?.first() == "1"
-        val fallbackReferer = session.parameters["referer"]?.first()
-        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val params = queryParams(session)
+        val url = params["url"]
+        val keyUrl = params["key"]
+        val iv = params["iv"]
+        val isDash = params["dash"] == "1"
+        val fallbackReferer = params["referer"]
+        val fallbackUserAgent = params["useragent"]
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
         Log.d(tag, "Processing segment request for URL: $url (key=${keyUrl != null}, iv=${iv != null}, dash=$isDash)")
@@ -274,6 +278,31 @@ class M3u8HttpServer(
 
         Log.d(tag, "Extracted headers (referer=${headers["referer"]?.take(80) ?: "none"}, ua=${headers["user-agent"]?.take(40) ?: "none"})")
         return headers
+    }
+
+    /**
+     * Resolves request parameters. DASH MPD rewrites embed the whole query
+     * (`url=...&dash=1&referer=...`) inside a single `q` value so the local
+     * URLs contain no raw `&` — those would need `&amp;` escaping in XML and
+     * break parsers that re-read the unescaped attribute (mpv / ffmpeg).
+     * Plain `url`/`key`/`iv`/`referer`/`useragent`/`dash` parameters remain
+     * supported for the HLS playlist rewrites.
+     */
+    private fun queryParams(session: IHTTPSession): Map<String, String> {
+        val q = session.parameters["q"]?.first()
+        if (q.isNullOrBlank()) {
+            return session.parameters.mapValues { it.value.first() }
+        }
+        val params = mutableMapOf<String, String>()
+        q.split("&").forEach { pair ->
+            val idx = pair.indexOf('=')
+            if (idx > 0) {
+                params[pair.substring(0, idx)] = URLDecoder.decode(pair.substring(idx + 1), Charsets.UTF_8.name())
+            } else if (idx == 0) {
+                params[""] = URLDecoder.decode(pair.substring(1), Charsets.UTF_8.name())
+            }
+        }
+        return params
     }
 
     /**
@@ -690,8 +719,11 @@ class M3u8HttpServer(
         } else {
             URLEncoder.encode(segmentUrl, Charsets.UTF_8.name())
         }
-        return buildString {
-            append("http://localhost:$serverPort/segment?url=$encodedUrl&dash=1")
+        // The whole inner query is percent-encoded into a single `q` param so
+        // the URL contains no raw `&` (XML-attribute safe, no `&amp;` needed).
+        val inner = buildString {
+            append("url=").append(encodedUrl)
+            append("&dash=1")
             if (!referer.isNullOrBlank()) {
                 append("&referer=")
                 append(URLEncoder.encode(referer, Charsets.UTF_8.name()))
@@ -701,6 +733,7 @@ class M3u8HttpServer(
                 append(URLEncoder.encode(userAgent, Charsets.UTF_8.name()))
             }
         }
+        return "http://localhost:$serverPort/segment?q=${URLEncoder.encode(inner, Charsets.UTF_8.name())}"
     }
 
     /**
@@ -791,6 +824,17 @@ class M3u8HttpServer(
                             currentKey = null
                             modifiedLines.add(line)
                         }
+                    }
+                }
+                line.startsWith("#EXT-X-MEDIA:") -> {
+                    val attrs = parseHlsAttributes(line)
+                    val uri = attrs["URI"]
+                    if (!uri.isNullOrBlank() && uri.contains(".m3u8", ignoreCase = true)) {
+                        val resolved = resolveHlsUrl(baseHttpUrl, uri)
+                        val proxied = buildChildM3u8Url(serverPort, resolved, referer, userAgent)
+                        modifiedLines.add(line.replace(Regex("""URI="[^"]*""""), "URI=\"$proxied\""))
+                    } else {
+                        modifiedLines.add(line)
                     }
                 }
                 line.startsWith("#") || line.isBlank() -> {
