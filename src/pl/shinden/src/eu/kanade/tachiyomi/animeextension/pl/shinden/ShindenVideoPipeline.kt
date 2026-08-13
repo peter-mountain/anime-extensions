@@ -276,7 +276,15 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
                             }
 
                             if (preferences.getBoolean("verbose_logging", false)) {
-                                ExtLog.d(Shinden.TAG, "host=$host -> ${mapped.size} videos [verbose: embedHost=$embedHost extractor=$extractorName]")
+                                val labelLog = mapped.joinToString(" | ") { v ->
+                                    val kind = when {
+                                        v.url.contains(".m3u8", ignoreCase = true) -> "HLS"
+                                        v.url.contains(".mpd", ignoreCase = true) -> "DASH"
+                                        else -> "URL"
+                                    }
+                                    "${v.quality} ($kind)"
+                                }
+                                ExtLog.d(Shinden.TAG, "host=$host -> ${mapped.size} videos [verbose: embedHost=$embedHost extractor=$extractorName labels: $labelLog]")
                             } else {
                                 ExtLog.d(Shinden.TAG, "host=$host -> ${mapped.size} videos")
                             }
@@ -306,6 +314,7 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
         }
         if (preferences.getBoolean("verbose_logging", false)) {
             ExtLog.d(Shinden.TAG, "=== DONE: ${processed.size} videos total (showEmpty=$showEmpty, filtered=${filtered.size}) ===")
+            ExtLog.d(Shinden.TAG, "=== FINAL: ${filtered.joinToString(" | ") { "${it.quality} [${it.url.take(80)}]" }}")
         } else {
             ExtLog.d(Shinden.TAG, "=== DONE: ${filtered.size} videos total ===")
         }
