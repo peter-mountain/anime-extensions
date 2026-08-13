@@ -333,7 +333,11 @@ internal fun Shinden.parseSourcesExt(document: org.jsoup.nodes.Document, authCod
                 val onlineId = json.optString("online_id", "").trim()
                 val subsAuthorRaw = json.optString("subs_author", "").trim()
                 val subsAuthor = if (subsAuthorRaw.isNotBlank() && !subsAuthorRaw.equals("null", ignoreCase = true)) {
-                    subsAuthorRaw.replace(Regex("""<[^>]*>"""), "").trim()
+                    subsAuthorRaw
+                        .replace("&nbsp;", " ")
+                        .replace(Regex("""<[^>]*>"""), "")
+                        .substringBefore("\n")
+                        .replace(Regex("""\s*\w+\s*:\s*\{.*$"""), "")
                         .split("|").first().trim()
                 } else {
                     ""
