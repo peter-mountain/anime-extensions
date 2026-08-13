@@ -74,7 +74,7 @@ class CdaExtractor(private val client: OkHttpClient) {
         // HLS master manifest — adaptive quality (ExoPlayer picks best stream)
         if (!data.video.manifestApple.isNullOrBlank()) {
             ExtLog.d(TAG, "CDA: HLS auto -> ${data.video.manifestApple}")
-            results.add(Video(data.video.manifestApple, "${prefix}cda.pl - auto", data.video.manifestApple, cdaHeaders))
+            results.add(Video(data.video.manifestApple, "${prefix}cda.pl - auto (max jakość)", data.video.manifestApple, cdaHeaders))
         }
 
         // DASH manifest — highest quality
