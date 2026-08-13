@@ -550,17 +550,26 @@ internal fun Shinden.filterVideosByPreference(vids: List<Video>): List<Video> {
 
     // Always search auto in ORIGINAL vids, not in narrowed list
     val auto = vids.filter { it.quality.contains("auto", ignoreCase = true) }
-    val maxP = bestNumeric.maxByOrNull { numericP(it.quality) }
+    val maxValue = bestNumeric.maxOfOrNull { numericP(it.quality) }
+
+    // All entries tied at the top quality (auto included when it matches)
+    val topTied = if (maxValue != null) {
+        bestNumeric.filter { numericP(it.quality) == maxValue }
+    } else {
+        bestNumeric
+    }
 
     return when (mode) {
-        "highest_only" -> {
-            if (maxP != null) listOf(maxP) else bestNumeric
-        }
+        "highest_only" -> topTied
 
         "auto_highest" -> {
+            // Top-quality entries plus every auto entry — they are separate
+            // streams (HLS auto vs DASH) even when their max quality matches.
             val r = mutableListOf<Video>()
-            if (maxP != null) r.add(maxP)
-            r.addAll(auto.filter { it.quality != maxP?.quality })
+            r.addAll(topTied)
+            for (a in auto) {
+                if (r.none { it.url == a.url }) r.add(a)
+            }
             r
         }
 
