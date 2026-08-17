@@ -135,7 +135,7 @@ class Shinden :
         Injekt.get<Application>().getSharedPreferences("genre_cache_$id", 0x0000)
     }
 
-    private val jikanCache: SharedPreferences by lazy {
+    private val tenraiCache: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("jikan_cache_$id", 0x0000)
     }
 
@@ -147,23 +147,10 @@ class Shinden :
     private val loginRefreshListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "shinden_user_id") {
             val nowLoggedIn = preferences.getString("shinden_user_id", null) != null
-            val loginStateChanged = isLoggedIn != nowLoggedIn
-            ExtLog.d(TAG, "Prefs changed: key=$key isLoggedIn=$isLoggedIn nowLoggedIn=$nowLoggedIn changed=$loginStateChanged")
-            if (loginStateChanged) {
-                ExtLog.d(TAG, "Login state changed (loggedIn=$nowLoggedIn) - clearing caches")
-                jikanCache.edit().clear().apply()
+            if (isLoggedIn != nowLoggedIn) {
+                ExtLog.d(TAG, "Login state changed (loggedIn=$nowLoggedIn) - clearing Tenrai cache")
+                tenraiCache.edit().clear().apply()
                 genreCache.edit().clear().apply()
-                // Clear Coil disk cache so covers are re-fetched with new auth state
-                try {
-                    val app = Injekt.get<Application>()
-                    for (dirName in listOf("coil_cache", "image_cache", "image_decoder_cache")) {
-                        val dir = java.io.File(app.cacheDir, dirName)
-                        if (dir.exists()) dir.deleteRecursively()
-                    }
-                    ExtLog.d(TAG, "Coil disk cache cleared")
-                } catch (e: Exception) {
-                    ExtLog.e(TAG, "Failed to clear Coil cache: ${e.message}", e)
-                }
             }
             isLoggedIn = nowLoggedIn
         }
@@ -707,12 +694,12 @@ class Shinden :
     }
 
     private fun tenraiSearchMalId(title: String): Int? {
-        val cached = jikanCache.getString("mal_$title", null)
+        val cached = tenraiCache.getString("mal_$title", null)
         if (cached != null && cached != "null") return cached.toIntOrNull()
 
         // Remove invalid cache entries
         if (cached == "null") {
-            jikanCache.edit().remove("mal_$title").apply()
+            tenraiCache.edit().remove("mal_$title").apply()
         }
 
         val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
@@ -727,7 +714,7 @@ class Shinden :
             val malId = first.getInt("mal_id")
             val jikanTitle = first.optString("title", "")
             ExtLog.d(TAG, "Tenrai search: found MAL $malId for '$title' (jikan_title='$jikanTitle')")
-            jikanCache.edit().putString("mal_$title", malId.toString()).apply()
+            tenraiCache.edit().putString("mal_$title", malId.toString()).apply()
             malId
         } catch (e: Exception) {
             ExtLog.e(TAG, "Jikan search exception for '$title': ${e.message}", e)
@@ -736,7 +723,7 @@ class Shinden :
     }
 
     private fun tenraiGetFillerEpisodes(malId: Int): Set<Int> {
-        val cached = jikanCache.getString("filler_$malId", null)
+        val cached = tenraiCache.getString("filler_$malId", null)
         if (cached != null) {
             return try {
                 val arr = org.json.JSONArray(cached)
@@ -770,7 +757,7 @@ class Shinden :
             }
             // Cache for 7 days
             val arr = org.json.JSONArray(fillerSet.toList())
-            jikanCache.edit().putString("filler_$malId", arr.toString())
+            tenraiCache.edit().putString("filler_$malId", arr.toString())
                 .putLong("filler_${malId}_ts", System.currentTimeMillis())
                 .apply()
             fillerSet
@@ -781,7 +768,7 @@ class Shinden :
     }
 
     private fun tenraiGetStaff(malId: Int): List<String> {
-        val cached = jikanCache.getString("staff_$malId", null)
+        val cached = tenraiCache.getString("staff_$malId", null)
         if (cached != null) {
             return try {
                 val arr = org.json.JSONArray(cached)
@@ -814,7 +801,7 @@ class Shinden :
             }
             if (staffNames.isNotEmpty()) {
                 val arr = org.json.JSONArray(staffNames)
-                jikanCache.edit().putString("staff_$malId", arr.toString()).apply()
+                tenraiCache.edit().putString("staff_$malId", arr.toString()).apply()
             }
             staffNames
         } catch (e: Exception) {
