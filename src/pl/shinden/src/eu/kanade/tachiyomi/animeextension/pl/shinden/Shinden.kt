@@ -28,6 +28,7 @@ import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
@@ -43,8 +44,10 @@ import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
@@ -88,6 +91,9 @@ class Shinden :
     internal var myAnimeActiveTitleStatusFilter: String? = null
     internal var myAnimeSearchQuery: String? = null
 
+    @Volatile
+    private var currentAnimeTitle: String = ""
+
     // Batch loading: fetch multiple pages at once
     internal val batchSize = 4
     internal var batchOffset = 1
@@ -127,6 +133,10 @@ class Shinden :
 
     private val genreCache: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("genre_cache_$id", 0x0000)
+    }
+
+    private val jikanCache: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("jikan_cache_$id", 0x0000)
     }
 
     @Volatile
@@ -634,6 +644,166 @@ class Shinden :
         YearPrecisionFilter(),
     )
 
+    // ============================== Jikan (MAL) Integration ============================
+
+    private fun jikanSearchMalId(title: String): Int? {
+        val cached = jikanCache.getString("mal_$title", null)
+        if (cached != null) return cached.toIntOrNull()
+
+        return try {
+            val body = JSONObject().apply {
+                put("query", "query(\$search: String) { Media(search: \$search, type: ANIME) { idMal } }")
+                put("variables", JSONObject().put("search", title))
+            }
+            // Use Jikan REST API instead
+            val url = "https://api.jikan.moe/v4/anime?q=${java.net.URLEncoder.encode(title, "UTF-8")}&limit=1&sfw=true"
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val json = JSONObject(resp.body!!.string())
+                val data = json.optJSONArray("data") ?: return null
+                if (data.length() == 0) return null
+                val malId = data.getJSONObject(0).getInt("mal_id")
+                jikanCache.edit().putString("mal_$title", malId.toString()).apply()
+                malId
+            }
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "Jikan search failed for '$title': ${e.message}")
+            null
+        }
+    }
+
+    private fun jikanGetFillerEpisodes(malId: Int): Set<Int> {
+        val cached = jikanCache.getString("filler_$malId", null)
+        if (cached != null) {
+            return try {
+                val arr = org.json.JSONArray(cached)
+                (0 until arr.length()).map { arr.getInt(it) }.toSet()
+            } catch (_: Exception) {
+                emptySet()
+            }
+        }
+
+        return try {
+            val fillerSet = mutableSetOf<Int>()
+            var page = 1
+            var hasNext = true
+            while (hasNext && page <= 20) {
+                val url = "https://api.jikan.moe/v4/anime/$malId/episodes?page=$page"
+                val request = Request.Builder().url(url).build()
+                // Rate limit: 3 req/sec, sleep 400ms between requests
+                if (page > 1) Thread.sleep(400)
+                client.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val json = JSONObject(resp.body!!.string())
+                    val data = json.optJSONArray("data") ?: return@use
+                    for (i in 0 until data.length()) {
+                        val ep = data.getJSONObject(i)
+                        if (ep.optBoolean("filler", false)) {
+                            fillerSet.add(ep.getInt("mal_id"))
+                        }
+                        if (ep.optBoolean("recap", false)) {
+                            fillerSet.add(ep.getInt("mal_id"))
+                        }
+                    }
+                    hasNext = json.optJSONObject("pagination")?.optBoolean("has_next_page", false) ?: false
+                    page++
+                }
+            }
+            // Cache for 7 days
+            val arr = org.json.JSONArray(fillerSet.toList())
+            jikanCache.edit().putString("filler_$malId", arr.toString())
+                .putLong("filler_${malId}_ts", System.currentTimeMillis())
+                .apply()
+            fillerSet
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "Jikan filler fetch failed for MAL $malId: ${e.message}")
+            emptySet()
+        }
+    }
+
+    private fun jikanGetStaff(malId: Int): List<String> {
+        val cached = jikanCache.getString("staff_$malId", null)
+        if (cached != null) {
+            return try {
+                val arr = org.json.JSONArray(cached)
+                (0 until arr.length()).map { arr.getString(it) }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        return try {
+            val url = "https://api.jikan.moe/v4/anime/$malId/characters"
+            val request = Request.Builder().url(url).build()
+            val staffNames = mutableListOf<String>()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@use
+                val json = JSONObject(resp.body!!.string())
+                val data = json.optJSONArray("data") ?: return@use
+                // Jikan characters endpoint doesn't have staff roles
+                // We need the full endpoint for staff
+            }
+            // Use full endpoint for staff
+            val fullUrl = "https://api.jikan.moe/v4/anime/$malId/full"
+            Thread.sleep(400)
+            val fullRequest = Request.Builder().url(fullUrl).build()
+            client.newCall(fullRequest).execute().use { resp ->
+                if (!resp.isSuccessful) return@use
+                val json = JSONObject(resp.body!!.string())
+                val data = json.optJSONObject("data") ?: return@use
+                val staffArr = data.optJSONArray("staff") ?: return@use
+                val wantedRoles = listOf("Director", "Screenplay", "Music", "Character Design")
+                for (i in 0 until staffArr.length()) {
+                    val s = staffArr.getJSONObject(i)
+                    val role = s.optString("role", "")
+                    if (wantedRoles.any { role.contains(it, ignoreCase = true) }) {
+                        val name = s.optJSONObject("person")?.optString("name", "") ?: ""
+                        if (name.isNotBlank()) staffNames.add(name)
+                    }
+                }
+            }
+            if (staffNames.isNotEmpty()) {
+                val arr = org.json.JSONArray(staffNames)
+                jikanCache.edit().putString("staff_$malId", arr.toString()).apply()
+            }
+            staffNames
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "Jikan staff fetch failed for MAL $malId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // ============================== AniList Cover Fallback ============================
+
+    private fun fetchAniListCover(title: String): String? {
+        return try {
+            val body = JSONObject().apply {
+                put("query", "query(\$search: String) { Media(search: \$search, type: ANIME) { coverImage { large } } }")
+                put("variables", JSONObject().put("search", title))
+            }
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val request = Request.Builder()
+                .url("https://graphql.anilist.co")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val json = JSONObject(resp.body!!.string())
+                json.getJSONObject("data")
+                    .getJSONObject("Media")
+                    .getJSONObject("coverImage")
+                    .optString("large")
+                    .takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "AniList cover failed for '$title': ${e.message}")
+            null
+        }
+    }
+
+    private val placeholderCover = Regex("/res/other/placeholders/")
+
     // ============================== Anime Details ================================
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -692,12 +862,81 @@ class Shinden :
             if (studioText != null) {
                 author = studioText
             }
+
+            // Extract artist (reżyser, scenarzysta, etc.) from staff section
+            val artistRoles = listOf("Reżyser", "Scenarzysta", "Kompozytor", "Projektant postaci")
+            val artistNames = mutableListOf<String>()
+            document.select("section.person-list .person-character-item").forEach { item ->
+                val role = item.selectFirst(".person-character-text p")?.text()?.trim() ?: ""
+                if (artistRoles.any { role.contains(it, ignoreCase = true) }) {
+                    val name = item.selectFirst(".person-character-text h3 a")?.text()?.trim() ?: ""
+                    if (name.isNotBlank()) artistNames.add(name)
+                }
+            }
+            if (artistNames.isNotEmpty()) {
+                artist = artistNames.joinToString(", ")
+            }
+
+            // Jikan staff fallback: if Shinden didn't find artist, try Jikan
+            if (artist.isNullOrBlank()) {
+                val titleClean = title.substringBefore(" ·").trim()
+                val malId = jikanSearchMalId(titleClean)
+                if (malId != null) {
+                    val jikanStaff = jikanGetStaff(malId)
+                    if (jikanStaff.isNotEmpty()) {
+                        ExtLog.d(TAG, "Jikan staff fallback: MAL $malId -> ${jikanStaff.joinToString()}")
+                        artist = jikanStaff.joinToString(", ")
+                    }
+                }
+            }
+
+            // Completed anime: no periodic refresh needed
+            if (status == SAnime.COMPLETED) {
+                update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
+            }
+
+            // AniList cover fallback for placeholder images
+            val currentCover = thumbnail_url
+            if (currentCover != null && placeholderCover.containsMatchIn(currentCover)) {
+                val titleClean = title.substringBefore(" \u00b7 ").trim()
+                val anilistCover = fetchAniListCover(titleClean)
+                if (anilistCover != null) {
+                    ExtLog.d(TAG, "AniList cover fallback: $titleClean -> ${anilistCover.take(60)}")
+                    thumbnail_url = anilistCover
+                }
+            }
         }
+    }
+
+    // ================================ Related =======================================
+
+    override fun relatedAnimeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url + "/recommendations", headers)
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        return document.select("a[href*=/series/]").mapNotNull { el ->
+            try {
+                val href = el.attr("abs:href")
+                if (href.isBlank() || !href.contains("/series/")) return@mapNotNull null
+                val name = el.selectFirst("h3, .title")?.text()?.trim()
+                    ?: el.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                SAnime.create().apply {
+                    setUrlWithoutDomain(href.removePrefix(baseUrl))
+                    title = name
+                    thumbnail_url = el.selectFirst("img")?.attr("abs:src")
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }.distinctBy { it.url }
     }
 
     // ================================ Episodes ====================================
 
-    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url + "/all-episodes", headers)
+    override fun episodeListRequest(anime: SAnime): Request {
+        currentAnimeTitle = anime.title ?: ""
+        return GET(baseUrl + anime.url + "/all-episodes", headers)
+    }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -712,19 +951,39 @@ class Shinden :
             val title = cols[1].text().trim()
 
             // Detect filler episodes (Shinden uses i.fa-facebook.button-with-tip for filler)
-            val isFiller = row.selectFirst("i.fa-facebook.button-with-tip") != null
+            val isShindenFiller = row.selectFirst("i.fa-facebook.button-with-tip") != null
 
             SEpisode.create().apply {
                 setUrlWithoutDomain(href)
                 episode_number = num
                 name = if (title.isNotBlank()) {
-                    if (isFiller) "(Filler) ${num.toInt()}. $title" else "${num.toInt()}. $title"
+                    if (isShindenFiller) "(Filler) ${num.toInt()}. $title" else "${num.toInt()}. $title"
                 } else {
-                    if (isFiller) "(Filler) Odcinek ${num.toInt()}" else "Odcinek ${num.toInt()}"
+                    if (isShindenFiller) "(Filler) Odcinek ${num.toInt()}" else "Odcinek ${num.toInt()}"
                 }
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
-        }.sortedBy { it.episode_number }
+        }.sortedBy { it.episode_number }.also { episodes ->
+            // Jikan filler fallback: if Shinden didn't mark any fillers, try Jikan
+            val hasAnyFiller = episodes.any { it.name?.contains("Filler") == true }
+            if (!hasAnyFiller && episodes.isNotEmpty()) {
+                val animeTitle = currentAnimeTitle.substringBefore(" ·").trim()
+                val malId = jikanSearchMalId(animeTitle)
+                if (malId != null) {
+                    val jikanFillers = jikanGetFillerEpisodes(malId)
+                    if (jikanFillers.isNotEmpty()) {
+                        ExtLog.d(TAG, "Jikan filler: MAL $malId -> ${jikanFillers.size} fillers for '$animeTitle'")
+                        episodes.forEach { ep ->
+                            val epNum = ep.episode_number.toInt()
+                            if (epNum in jikanFillers) {
+                                val prefix = if (ep.name?.contains("Filler") == true) "" else "(Filler) "
+                                ep.name = "$prefix${ep.name}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun parseEpisodeDate(raw: String): Long {
