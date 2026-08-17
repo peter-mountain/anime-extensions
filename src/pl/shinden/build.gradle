@@ -32,3 +32,11 @@ dependencies {
     implementation(project(':NewAndModifiedExtractors:Playmate'))
     implementation(project(':NewAndModifiedExtractors:Dailymotion'))
 }
+
+android {
+    packaging {
+        resources {
+            excludes += "META-INF/nanohttpd/**"
+        }
+    }
+}
