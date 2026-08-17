@@ -651,11 +651,6 @@ class Shinden :
         if (cached != null) return cached.toIntOrNull()
 
         return try {
-            val body = JSONObject().apply {
-                put("query", "query(\$search: String) { Media(search: \$search, type: ANIME) { idMal } }")
-                put("variables", JSONObject().put("search", title))
-            }
-            // Use Jikan REST API instead
             val url = "https://api.jikan.moe/v4/anime?q=${java.net.URLEncoder.encode(title, "UTF-8")}&limit=1&sfw=true"
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { resp ->
@@ -895,9 +890,10 @@ class Shinden :
                 update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
             }
 
-            // AniList cover fallback for placeholder images
-            val currentCover = thumbnail_url
-            if (currentCover != null && placeholderCover.containsMatchIn(currentCover)) {
+            // AniList cover fallback: check actual cover img (not og:image which is always real)
+            val coverImg = document.selectFirst("img.info-aside-img")?.attr("abs:src") ?: ""
+            val isPlaceholder = coverImg.contains("placeholders") || coverImg.isBlank()
+            if (isPlaceholder || thumbnail_url.isNullOrBlank()) {
                 val titleClean = title.substringBefore(" \u00b7 ").trim()
                 val anilistCover = fetchAniListCover(titleClean)
                 if (anilistCover != null) {
