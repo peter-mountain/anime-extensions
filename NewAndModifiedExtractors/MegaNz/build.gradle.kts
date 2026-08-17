@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    implementation("com.github.NanoHttpd.nanohttpd:nanohttpd:-SNAPSHOT")
+    implementation(files("libs/nanohttpd.jar"))
 }
