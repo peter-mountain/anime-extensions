@@ -142,6 +142,19 @@ class Shinden :
     @Volatile
     internal var isLoggedIn = preferences.getString("shinden_user_id", null) != null
 
+    // Force refresh on login: Shinden shows incomplete data to non-logged-in users
+    // Clear Jikan cache when user logs in so thumbnails/episodes are re-fetched
+    private val loginRefreshListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "shinden_user_id") {
+            val nowLoggedIn = preferences.getString("shinden_user_id", null) != null
+            if (!isLoggedIn && nowLoggedIn) {
+                ExtLog.d(TAG, "Login detected - clearing Jikan cache for fresh data")
+                jikanCache.edit().clear().apply()
+            }
+            isLoggedIn = nowLoggedIn
+        }
+    }.also { preferences.registerOnSharedPreferenceChangeListener(it) }
+
     // Anime list client-side filter state
     internal var animeListTypeFilter: String? = null
     internal var animeListSortFilter: Int = 0
@@ -890,11 +903,10 @@ class Shinden :
                 update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
             }
 
-            // AniList cover fallback: check actual cover img (not og:image which is always real)
-            val coverImg = document.selectFirst("img.info-aside-img")?.attr("abs:src") ?: ""
-            val isPlaceholder = coverImg.contains("placeholders") || coverImg.isBlank()
-            if (isPlaceholder || thumbnail_url.isNullOrBlank()) {
+            // AniList cover fallback: check thumbnail_url (og:image) for placeholder pattern
+            if (thumbnail_url != null && "placeholders" in thumbnail_url!!) {
                 val titleClean = title.substringBefore(" \u00b7 ").trim()
+                ExtLog.d(TAG, "AniList cover: placeholder detected, fetching for '$titleClean'")
                 val anilistCover = fetchAniListCover(titleClean)
                 if (anilistCover != null) {
                     ExtLog.d(TAG, "AniList cover fallback: $titleClean -> ${anilistCover.take(60)}")
@@ -960,22 +972,26 @@ class Shinden :
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
         }.sortedBy { it.episode_number }.also { episodes ->
-            // Jikan filler fallback: if Shinden didn't mark any fillers, try Jikan
-            val hasAnyFiller = episodes.any { it.name?.contains("Filler") == true }
-            if (!hasAnyFiller && episodes.isNotEmpty()) {
+            // Jikan filler fallback: always try to supplement Shinden's filler data
+            if (episodes.isNotEmpty()) {
                 val animeTitle = currentAnimeTitle.substringBefore(" ·").trim()
+                val hasAnyFiller = episodes.any { it.name?.contains("Filler") == true }
+                ExtLog.d(TAG, "Jikan filler check: title='$animeTitle', shindenFillers=$hasAnyFiller, eps=${episodes.size}")
                 val malId = jikanSearchMalId(animeTitle)
+                ExtLog.d(TAG, "Jikan filler: malId=$malId for '$animeTitle'")
                 if (malId != null) {
                     val jikanFillers = jikanGetFillerEpisodes(malId)
+                    ExtLog.d(TAG, "Jikan filler: MAL $malId -> ${jikanFillers.size} fillers for '$animeTitle'")
                     if (jikanFillers.isNotEmpty()) {
-                        ExtLog.d(TAG, "Jikan filler: MAL $malId -> ${jikanFillers.size} fillers for '$animeTitle'")
+                        var added = 0
                         episodes.forEach { ep ->
                             val epNum = ep.episode_number.toInt()
-                            if (epNum in jikanFillers) {
-                                val prefix = if (ep.name?.contains("Filler") == true) "" else "(Filler) "
-                                ep.name = "$prefix${ep.name}"
+                            if (epNum in jikanFillers && ep.name?.contains("Filler") != true) {
+                                ep.name = "(Filler) ${ep.name}"
+                                added++
                             }
                         }
+                        if (added > 0) ExtLog.d(TAG, "Jikan filler: added $added filler marks for '$animeTitle'")
                     }
                 }
             }
