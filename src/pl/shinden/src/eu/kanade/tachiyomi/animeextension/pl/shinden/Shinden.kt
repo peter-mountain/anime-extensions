@@ -903,10 +903,11 @@ class Shinden :
                 update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
             }
 
-            // AniList cover fallback: check thumbnail_url (og:image) for placeholder pattern
-            if (thumbnail_url != null && "placeholders" in thumbnail_url!!) {
+            // AniList cover fallback: if no cover or placeholder, try AniList
+            val hasPlaceholder = thumbnail_url == null || "placeholders" in (thumbnail_url ?: "")
+            if (hasPlaceholder) {
                 val titleClean = title.substringBefore(" \u00b7 ").trim()
-                ExtLog.d(TAG, "AniList cover: placeholder detected, fetching for '$titleClean'")
+                ExtLog.d(TAG, "AniList cover: no cover/placeholder (url=$thumbnail_url), fetching for '$titleClean'")
                 val anilistCover = fetchAniListCover(titleClean)
                 if (anilistCover != null) {
                     ExtLog.d(TAG, "AniList cover fallback: $titleClean -> ${anilistCover.take(60)}")
