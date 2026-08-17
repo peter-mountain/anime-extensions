@@ -722,19 +722,25 @@ class Shinden :
         }
     }
 
-    private fun tenraiGetFillerEpisodes(malId: Int): Set<Int> {
-        val cached = tenraiCache.getString("filler_$malId", null)
-        if (cached != null) {
+    // Returns pair: fillerEpisodes, recapEpisodes
+    private fun tenraiGetFillerEpisodes(malId: Int): Pair<Set<Int>, Set<Int>> {
+        val fillerCached = tenraiCache.getString("filler_$malId", null)
+        val recapCached = tenraiCache.getString("recap_$malId", null)
+        if (fillerCached != null && recapCached != null) {
             return try {
-                val arr = org.json.JSONArray(cached)
-                (0 until arr.length()).map { arr.getInt(it) }.toSet()
+                val fillerArr = org.json.JSONArray(fillerCached)
+                val recapArr = org.json.JSONArray(recapCached)
+                val fillers = (0 until fillerArr.length()).map { fillerArr.getInt(it) }.toSet()
+                val recaps = (0 until recapArr.length()).map { recapArr.getInt(it) }.toSet()
+                Pair(fillers, recaps)
             } catch (_: Exception) {
-                emptySet()
+                Pair(emptySet(), emptySet())
             }
         }
 
         return try {
             val fillerSet = mutableSetOf<Int>()
+            val recapSet = mutableSetOf<Int>()
             var page = 1
             var hasNext = true
             while (hasNext && page <= 20) {
@@ -745,25 +751,24 @@ class Shinden :
                 val data = json.optJSONArray("data") ?: break
                 for (i in 0 until data.length()) {
                     val ep = data.getJSONObject(i)
-                    if (ep.optBoolean("filler", false)) {
-                        fillerSet.add(ep.getInt("mal_id"))
-                    }
-                    if (ep.optBoolean("recap", false)) {
-                        fillerSet.add(ep.getInt("mal_id"))
-                    }
+                    val epId = ep.getInt("mal_id")
+                    if (ep.optBoolean("filler", false)) fillerSet.add(epId)
+                    if (ep.optBoolean("recap", false)) recapSet.add(epId)
                 }
                 hasNext = json.optJSONObject("pagination")?.optBoolean("has_next_page", false) ?: false
                 page++
             }
-            // Cache for 7 days
-            val arr = org.json.JSONArray(fillerSet.toList())
-            tenraiCache.edit().putString("filler_$malId", arr.toString())
+            val fillerArr = org.json.JSONArray(fillerSet.toList())
+            val recapArr = org.json.JSONArray(recapSet.toList())
+            tenraiCache.edit()
+                .putString("filler_$malId", fillerArr.toString())
+                .putString("recap_$malId", recapArr.toString())
                 .putLong("filler_${malId}_ts", System.currentTimeMillis())
                 .apply()
-            fillerSet
+            Pair(fillerSet, recapSet)
         } catch (e: Exception) {
             ExtLog.d(TAG, "Tenrai filler fetch failed for MAL $malId: ${e.message}")
-            emptySet()
+            Pair(emptySet(), emptySet())
         }
     }
 
@@ -948,7 +953,7 @@ class Shinden :
 
     // ================================ Related =======================================
 
-    override fun getSupportsRelatedAnimes(): Boolean = true
+    override val supportsRelatedAnimes: Boolean = true
 
     override fun relatedAnimeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
 
@@ -1020,19 +1025,20 @@ class Shinden :
                 val malId = tenraiSearchMalId(animeTitle)
                 ExtLog.d(TAG, "Tenrai filler: malId=$malId for '$animeTitle'")
                 if (malId != null) {
-                    val tenraiFillers = tenraiGetFillerEpisodes(malId)
-                    ExtLog.d(TAG, "Tenrai filler: MAL $malId -> ${tenraiFillers.size} fillers for '$animeTitle'")
-                    if (tenraiFillers.isNotEmpty()) {
-                        var added = 0
-                        episodes.forEach { ep ->
-                            val epNum = ep.episode_number.toInt()
-                            if (epNum in tenraiFillers && ep.name?.contains("Filler") != true) {
-                                ep.name = "(Filler) ${ep.name}"
-                                added++
+                    val (tenraiFillers, tenraiRecaps) = tenraiGetFillerEpisodes(malId)
+                    ExtLog.d(TAG, "Tenrai: MAL $malId -> ${tenraiFillers.size} fillers, ${tenraiRecaps.size} recaps for '$animeTitle'")
+                    var added = 0
+                    episodes.forEach { ep ->
+                        val epNum = ep.episode_number.toInt()
+                        val alreadyMarked = ep.name?.contains("Filler") == true || ep.name?.contains("Recap") == true
+                        if (!alreadyMarked) {
+                            when {
+                                epNum in tenraiFillers -> { ep.name = "(Filler) ${ep.name}"; added++ }
+                                epNum in tenraiRecaps -> { ep.name = "(Recap) ${ep.name}"; added++ }
                             }
                         }
-                        if (added > 0) ExtLog.d(TAG, "Tenrai filler: added $added filler marks for '$animeTitle'")
                     }
+                    if (added > 0) ExtLog.d(TAG, "Tenrai: added $added marks for '$animeTitle'")
                 }
             }
         }
