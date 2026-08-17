@@ -273,7 +273,7 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
                                 )?.value ?: qualityPattern.find(video.quality)?.value ?: quality
                                 val authorPart = if (subsAuthor.isNotBlank()) " · $subsAuthor" else ""
                                 val finalQuality = "$embedHost $qMatch$authorPart${buildLangLabel(audio, subs)}"
-                                Video(video.url, finalQuality, video.videoUrl, video.headers)
+                                Video(video.url, finalQuality, video.videoUrl, video.headers, subtitleTracks = video.subtitleTracks, audioTracks = video.audioTracks)
                             }.let { vids ->
                                 filterVideosByPreference(vids)
                             }
