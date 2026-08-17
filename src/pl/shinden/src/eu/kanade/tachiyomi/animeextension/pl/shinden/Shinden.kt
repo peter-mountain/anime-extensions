@@ -147,13 +147,30 @@ class Shinden :
     private val loginRefreshListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "shinden_user_id") {
             val nowLoggedIn = preferences.getString("shinden_user_id", null) != null
-            if (!isLoggedIn && nowLoggedIn) {
-                ExtLog.d(TAG, "Login detected - clearing Jikan cache for fresh data")
+            val loginStateChanged = isLoggedIn != nowLoggedIn
+            ExtLog.d(TAG, "Prefs changed: key=$key isLoggedIn=$isLoggedIn nowLoggedIn=$nowLoggedIn changed=$loginStateChanged")
+            if (loginStateChanged) {
+                ExtLog.d(TAG, "Login state changed (loggedIn=$nowLoggedIn) - clearing caches")
                 jikanCache.edit().clear().apply()
+                genreCache.edit().clear().apply()
+                // Clear Coil disk cache so covers are re-fetched with new auth state
+                try {
+                    val app = Injekt.get<Application>()
+                    for (dirName in listOf("coil_cache", "image_cache", "image_decoder_cache")) {
+                        val dir = java.io.File(app.cacheDir, dirName)
+                        if (dir.exists()) dir.deleteRecursively()
+                    }
+                    ExtLog.d(TAG, "Coil disk cache cleared")
+                } catch (e: Exception) {
+                    ExtLog.e(TAG, "Failed to clear Coil cache: ${e.message}", e)
+                }
             }
             isLoggedIn = nowLoggedIn
         }
-    }.also { preferences.registerOnSharedPreferenceChangeListener(it) }
+    }.also { listener ->
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        ExtLog.d(TAG, "Login refresh listener registered")
+    }
 
     // Anime list client-side filter state
     internal var animeListTypeFilter: String? = null
@@ -569,7 +586,7 @@ class Shinden :
         val currentUrl = response.request.url.toString()
         if (currentUrl == lastSearchUrl && lastSearchResult != null && currentSearchPage == lastSearchPage) {
             ExtLog.d(TAG, "searchAnimeParse: returning cached result for same URL")
-            return lastSearchResult!!
+            return lastSearchResult ?: return AnimesPage(emptyList(), false)
         }
         // No userId + Moje anime = empty
         if (isMyAnimeActive && myAnimeNoUserId) {
@@ -659,24 +676,61 @@ class Shinden :
 
     // ============================== Jikan (MAL) Integration ============================
 
+    // Helper: Jikan HTTP with retry for transient errors (429, 504, 5xx)
+    private fun jikanHttpGet(url: String, maxRetries: Int = 3): String? {
+        for (attempt in 1..maxRetries) {
+            try {
+                if (attempt > 1) {
+                    Thread.sleep(1000L * attempt)
+                    ExtLog.d(TAG, "Jikan HTTP: retry $attempt/$maxRetries for $url")
+                }
+                val request = Request.Builder().url(url).build()
+                network.client.newCall(request).execute().use { resp ->
+                    val body = resp.body?.string() ?: ""
+                    if (resp.code == 429 || resp.code >= 500) {
+                        ExtLog.w(TAG, "Jikan HTTP: ${resp.code} for $url (attempt $attempt/$maxRetries)")
+                        if (attempt < maxRetries) return@use // retry
+                        return null
+                    }
+                    if (!resp.isSuccessful) {
+                        ExtLog.w(TAG, "Jikan HTTP: ${resp.code} for $url")
+                        return null
+                    }
+                    return body
+                }
+            } catch (e: Exception) {
+                ExtLog.d(TAG, "Jikan HTTP exception (attempt $attempt/$maxRetries): ${e.message}")
+                if (attempt >= maxRetries) return null
+            }
+        }
+        return null
+    }
+
     private fun jikanSearchMalId(title: String): Int? {
         val cached = jikanCache.getString("mal_$title", null)
-        if (cached != null) return cached.toIntOrNull()
+        if (cached != null && cached != "null") return cached.toIntOrNull()
 
+        // Remove invalid cache entries
+        if (cached == "null") {
+            jikanCache.edit().remove("mal_$title").apply()
+        }
+
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        val url = "https://api.jikan.moe/v4/anime?q=$encodedTitle&limit=1&sfw=true"
+        ExtLog.d(TAG, "Jikan search: querying for '$title'")
+        val body = jikanHttpGet(url) ?: return null
         return try {
-            val url = "https://api.jikan.moe/v4/anime?q=${java.net.URLEncoder.encode(title, "UTF-8")}&limit=1&sfw=true"
-            val request = Request.Builder().url(url).build()
-            network.client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                val json = JSONObject(resp.body!!.string())
-                val data = json.optJSONArray("data") ?: return null
-                if (data.length() == 0) return null
-                val malId = data.getJSONObject(0).getInt("mal_id")
-                jikanCache.edit().putString("mal_$title", malId.toString()).apply()
-                malId
-            }
+            val json = JSONObject(body)
+            val data = json.optJSONArray("data") ?: return null
+            if (data.length() == 0) return null
+            val first = data.getJSONObject(0)
+            val malId = first.getInt("mal_id")
+            val jikanTitle = first.optString("title", "")
+            ExtLog.d(TAG, "Jikan search: found MAL $malId for '$title' (jikan_title='$jikanTitle')")
+            jikanCache.edit().putString("mal_$title", malId.toString()).apply()
+            malId
         } catch (e: Exception) {
-            ExtLog.d(TAG, "Jikan search failed for '$title': ${e.message}")
+            ExtLog.e(TAG, "Jikan search exception for '$title': ${e.message}", e)
             null
         }
     }
@@ -698,25 +752,21 @@ class Shinden :
             var hasNext = true
             while (hasNext && page <= 20) {
                 val url = "https://api.jikan.moe/v4/anime/$malId/episodes?page=$page"
-                val request = Request.Builder().url(url).build()
-                // Rate limit: 3 req/sec, sleep 400ms between requests
-                if (page > 1) Thread.sleep(400)
-                network.client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val json = JSONObject(resp.body!!.string())
-                    val data = json.optJSONArray("data") ?: return@use
-                    for (i in 0 until data.length()) {
-                        val ep = data.getJSONObject(i)
-                        if (ep.optBoolean("filler", false)) {
-                            fillerSet.add(ep.getInt("mal_id"))
-                        }
-                        if (ep.optBoolean("recap", false)) {
-                            fillerSet.add(ep.getInt("mal_id"))
-                        }
+                if (page > 1) Thread.sleep(500)
+                val body = jikanHttpGet(url) ?: break
+                val json = JSONObject(body)
+                val data = json.optJSONArray("data") ?: break
+                for (i in 0 until data.length()) {
+                    val ep = data.getJSONObject(i)
+                    if (ep.optBoolean("filler", false)) {
+                        fillerSet.add(ep.getInt("mal_id"))
                     }
-                    hasNext = json.optJSONObject("pagination")?.optBoolean("has_next_page", false) ?: false
-                    page++
+                    if (ep.optBoolean("recap", false)) {
+                        fillerSet.add(ep.getInt("mal_id"))
+                    }
                 }
+                hasNext = json.optJSONObject("pagination")?.optBoolean("has_next_page", false) ?: false
+                page++
             }
             // Cache for 7 days
             val arr = org.json.JSONArray(fillerSet.toList())
@@ -742,32 +792,23 @@ class Shinden :
         }
 
         return try {
-            val url = "https://api.jikan.moe/v4/anime/$malId/characters"
-            val request = Request.Builder().url(url).build()
             val staffNames = mutableListOf<String>()
-            network.client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return@use
-                val json = JSONObject(resp.body!!.string())
-                val data = json.optJSONArray("data") ?: return@use
-                // Jikan characters endpoint doesn't have staff roles
-                // We need the full endpoint for staff
-            }
             // Use full endpoint for staff
             val fullUrl = "https://api.jikan.moe/v4/anime/$malId/full"
-            Thread.sleep(400)
-            val fullRequest = Request.Builder().url(fullUrl).build()
-            network.client.newCall(fullRequest).execute().use { resp ->
-                if (!resp.isSuccessful) return@use
-                val json = JSONObject(resp.body!!.string())
-                val data = json.optJSONObject("data") ?: return@use
-                val staffArr = data.optJSONArray("staff") ?: return@use
-                val wantedRoles = listOf("Director", "Screenplay", "Music", "Character Design")
-                for (i in 0 until staffArr.length()) {
-                    val s = staffArr.getJSONObject(i)
+            val body = jikanHttpGet(fullUrl)
+            if (body != null) {
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                val data = json?.optJSONObject("data")
+                val staffArr = data?.optJSONArray("staff")
+                if (staffArr != null) {
+                    val wantedRoles = listOf("Director", "Screenplay", "Music", "Character Design")
+                    for (i in 0 until staffArr.length()) {
+                        val s = staffArr.getJSONObject(i)
                     val role = s.optString("role", "")
                     if (wantedRoles.any { role.contains(it, ignoreCase = true) }) {
                         val name = s.optJSONObject("person")?.optString("name", "") ?: ""
                         if (name.isNotBlank()) staffNames.add(name)
+                    }
                     }
                 }
             }
@@ -797,12 +838,13 @@ class Shinden :
                 .build()
             network.client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
-                val json = JSONObject(resp.body!!.string())
-                json.getJSONObject("data")
-                    .getJSONObject("Media")
-                    .getJSONObject("coverImage")
-                    .optString("large")
-                    .takeIf { it.isNotBlank() }
+                val bodyStr = resp.body?.string() ?: return null
+                val json = JSONObject(bodyStr)
+                json.optJSONObject("data")
+                    ?.optJSONObject("Media")
+                    ?.optJSONObject("coverImage")
+                    ?.optString("large")
+                    ?.takeIf { it.isNotBlank() }
             }
         } catch (e: Exception) {
             ExtLog.d(TAG, "AniList cover failed for '$title': ${e.message}")
