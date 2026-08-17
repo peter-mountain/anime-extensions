@@ -666,7 +666,7 @@ class Shinden :
         return try {
             val url = "https://api.jikan.moe/v4/anime?q=${java.net.URLEncoder.encode(title, "UTF-8")}&limit=1&sfw=true"
             val request = Request.Builder().url(url).build()
-            client.newCall(request).execute().use { resp ->
+            network.client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 val json = JSONObject(resp.body!!.string())
                 val data = json.optJSONArray("data") ?: return null
@@ -701,7 +701,7 @@ class Shinden :
                 val request = Request.Builder().url(url).build()
                 // Rate limit: 3 req/sec, sleep 400ms between requests
                 if (page > 1) Thread.sleep(400)
-                client.newCall(request).execute().use { resp ->
+                network.client.newCall(request).execute().use { resp ->
                     if (!resp.isSuccessful) return@use
                     val json = JSONObject(resp.body!!.string())
                     val data = json.optJSONArray("data") ?: return@use
@@ -745,7 +745,7 @@ class Shinden :
             val url = "https://api.jikan.moe/v4/anime/$malId/characters"
             val request = Request.Builder().url(url).build()
             val staffNames = mutableListOf<String>()
-            client.newCall(request).execute().use { resp ->
+            network.client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return@use
                 val json = JSONObject(resp.body!!.string())
                 val data = json.optJSONArray("data") ?: return@use
@@ -756,7 +756,7 @@ class Shinden :
             val fullUrl = "https://api.jikan.moe/v4/anime/$malId/full"
             Thread.sleep(400)
             val fullRequest = Request.Builder().url(fullUrl).build()
-            client.newCall(fullRequest).execute().use { resp ->
+            network.client.newCall(fullRequest).execute().use { resp ->
                 if (!resp.isSuccessful) return@use
                 val json = JSONObject(resp.body!!.string())
                 val data = json.optJSONObject("data") ?: return@use
@@ -795,7 +795,7 @@ class Shinden :
                 .url("https://graphql.anilist.co")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
-            client.newCall(request).execute().use { resp ->
+            network.client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 val json = JSONObject(resp.body!!.string())
                 json.getJSONObject("data")
