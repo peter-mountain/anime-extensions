@@ -948,20 +948,30 @@ class Shinden :
 
     // ================================ Related =======================================
 
-    override fun relatedAnimeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url + "/recommendations", headers)
+    override fun getSupportsRelatedAnimes(): Boolean = true
+
+    override fun relatedAnimeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
         val document = response.asJsoup()
-        return document.select("a[href*=/series/]").mapNotNull { el ->
+        // Parse "Powiązane Serie" section — ul.figure-list > li.relation_t2t
+        return document.select("li.relation_t2t").mapNotNull { li ->
             try {
-                val href = el.attr("abs:href")
-                if (href.isBlank() || !href.contains("/series/")) return@mapNotNull null
-                val name = el.selectFirst("h3, .title")?.text()?.trim()
-                    ?: el.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                // Get link — prefer /series/ (anime), skip /manga/ etc.
+                val link = li.select("a[href*=/series/]").firstOrNull() ?: return@mapNotNull null
+                val href = link.attr("href")
+                if (href.isBlank()) return@mapNotNull null
+
+                val title = link.text().trim()
+                if (title.isBlank()) return@mapNotNull null
+
+                // Get relation type (Sequel, Prequel, Side Story, etc.)
+                val relationType = li.select("figcaption.figure-type").lastOrNull()?.text()?.trim() ?: ""
+
                 SAnime.create().apply {
-                    setUrlWithoutDomain(href.removePrefix(baseUrl))
-                    title = name
-                    thumbnail_url = el.selectFirst("img")?.attr("abs:src")
+                    setUrlWithoutDomain(href)
+                    this.title = "$title ($relationType)"
+                    thumbnail_url = li.selectFirst("img")?.attr("abs:src")
                 }
             } catch (_: Exception) {
                 null
