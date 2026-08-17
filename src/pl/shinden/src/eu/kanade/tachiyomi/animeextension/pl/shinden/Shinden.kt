@@ -143,7 +143,7 @@ class Shinden :
     internal var isLoggedIn = preferences.getString("shinden_user_id", null) != null
 
     // Force refresh on login: Shinden shows incomplete data to non-logged-in users
-    // Clear Jikan cache when user logs in so thumbnails/episodes are re-fetched
+    // Clear Tenrai cache when user logs in so thumbnails/episodes are re-fetched
     private val loginRefreshListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "shinden_user_id") {
             val nowLoggedIn = preferences.getString("shinden_user_id", null) != null
@@ -674,39 +674,39 @@ class Shinden :
         YearPrecisionFilter(),
     )
 
-    // ============================== Jikan (MAL) Integration ============================
+    // ============================== Tenrai (MAL) Integration ============================
 
     // Helper: Jikan HTTP with retry for transient errors (429, 504, 5xx)
-    private fun jikanHttpGet(url: String, maxRetries: Int = 3): String? {
+    private fun tenraiHttpGet(url: String, maxRetries: Int = 3): String? {
         for (attempt in 1..maxRetries) {
             try {
                 if (attempt > 1) {
                     Thread.sleep(1000L * attempt)
-                    ExtLog.d(TAG, "Jikan HTTP: retry $attempt/$maxRetries for $url")
+                    ExtLog.d(TAG, "Tenrai HTTP: retry $attempt/$maxRetries for $url")
                 }
                 val request = Request.Builder().url(url).build()
                 network.client.newCall(request).execute().use { resp ->
                     val body = resp.body?.string() ?: ""
                     if (resp.code == 429 || resp.code >= 500) {
-                        ExtLog.w(TAG, "Jikan HTTP: ${resp.code} for $url (attempt $attempt/$maxRetries)")
+                        ExtLog.w(TAG, "Tenrai HTTP: ${resp.code} for $url (attempt $attempt/$maxRetries)")
                         if (attempt < maxRetries) return@use // retry
                         return null
                     }
                     if (!resp.isSuccessful) {
-                        ExtLog.w(TAG, "Jikan HTTP: ${resp.code} for $url")
+                        ExtLog.w(TAG, "Tenrai HTTP: ${resp.code} for $url")
                         return null
                     }
                     return body
                 }
             } catch (e: Exception) {
-                ExtLog.d(TAG, "Jikan HTTP exception (attempt $attempt/$maxRetries): ${e.message}")
+                ExtLog.d(TAG, "Tenrai HTTP exception (attempt $attempt/$maxRetries): ${e.message}")
                 if (attempt >= maxRetries) return null
             }
         }
         return null
     }
 
-    private fun jikanSearchMalId(title: String): Int? {
+    private fun tenraiSearchMalId(title: String): Int? {
         val cached = jikanCache.getString("mal_$title", null)
         if (cached != null && cached != "null") return cached.toIntOrNull()
 
@@ -716,9 +716,9 @@ class Shinden :
         }
 
         val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
-        val url = "https://api.jikan.moe/v4/anime?q=$encodedTitle&limit=1&sfw=true"
-        ExtLog.d(TAG, "Jikan search: querying for '$title'")
-        val body = jikanHttpGet(url) ?: return null
+        val url = "https://api.tenrai.org/v1/anime?q=$encodedTitle&limit=1&sfw=true"
+        ExtLog.d(TAG, "Tenrai search: querying for '$title'")
+        val body = tenraiHttpGet(url) ?: return null
         return try {
             val json = JSONObject(body)
             val data = json.optJSONArray("data") ?: return null
@@ -726,7 +726,7 @@ class Shinden :
             val first = data.getJSONObject(0)
             val malId = first.getInt("mal_id")
             val jikanTitle = first.optString("title", "")
-            ExtLog.d(TAG, "Jikan search: found MAL $malId for '$title' (jikan_title='$jikanTitle')")
+            ExtLog.d(TAG, "Tenrai search: found MAL $malId for '$title' (jikan_title='$jikanTitle')")
             jikanCache.edit().putString("mal_$title", malId.toString()).apply()
             malId
         } catch (e: Exception) {
@@ -735,7 +735,7 @@ class Shinden :
         }
     }
 
-    private fun jikanGetFillerEpisodes(malId: Int): Set<Int> {
+    private fun tenraiGetFillerEpisodes(malId: Int): Set<Int> {
         val cached = jikanCache.getString("filler_$malId", null)
         if (cached != null) {
             return try {
@@ -751,9 +751,9 @@ class Shinden :
             var page = 1
             var hasNext = true
             while (hasNext && page <= 20) {
-                val url = "https://api.jikan.moe/v4/anime/$malId/episodes?page=$page"
+                val url = "https://api.tenrai.org/v1/anime/$malId/episodes?page=$page"
                 if (page > 1) Thread.sleep(500)
-                val body = jikanHttpGet(url) ?: break
+                val body = tenraiHttpGet(url) ?: break
                 val json = JSONObject(body)
                 val data = json.optJSONArray("data") ?: break
                 for (i in 0 until data.length()) {
@@ -775,12 +775,12 @@ class Shinden :
                 .apply()
             fillerSet
         } catch (e: Exception) {
-            ExtLog.d(TAG, "Jikan filler fetch failed for MAL $malId: ${e.message}")
+            ExtLog.d(TAG, "Tenrai filler fetch failed for MAL $malId: ${e.message}")
             emptySet()
         }
     }
 
-    private fun jikanGetStaff(malId: Int): List<String> {
+    private fun tenraiGetStaff(malId: Int): List<String> {
         val cached = jikanCache.getString("staff_$malId", null)
         if (cached != null) {
             return try {
@@ -794,8 +794,8 @@ class Shinden :
         return try {
             val staffNames = mutableListOf<String>()
             // Use full endpoint for staff
-            val fullUrl = "https://api.jikan.moe/v4/anime/$malId/full"
-            val body = jikanHttpGet(fullUrl)
+            val fullUrl = "https://api.tenrai.org/v1/anime/$malId/full"
+            val body = tenraiHttpGet(fullUrl)
             if (body != null) {
                 val json = runCatching { JSONObject(body) }.getOrNull()
                 val data = json?.optJSONObject("data")
@@ -818,7 +818,7 @@ class Shinden :
             }
             staffNames
         } catch (e: Exception) {
-            ExtLog.d(TAG, "Jikan staff fetch failed for MAL $malId: ${e.message}")
+            ExtLog.d(TAG, "Tenrai staff fetch failed for MAL $malId: ${e.message}")
             emptyList()
         }
     }
@@ -927,15 +927,15 @@ class Shinden :
                 artist = artistNames.joinToString(", ")
             }
 
-            // Jikan staff fallback: if Shinden didn't find artist, try Jikan
+            // Tenrai staff fallback: if Shinden didn't find artist, try Jikan
             if (artist.isNullOrBlank()) {
                 val titleClean = title.substringBefore(" ·").trim()
-                val malId = jikanSearchMalId(titleClean)
+                val malId = tenraiSearchMalId(titleClean)
                 if (malId != null) {
-                    val jikanStaff = jikanGetStaff(malId)
-                    if (jikanStaff.isNotEmpty()) {
-                        ExtLog.d(TAG, "Jikan staff fallback: MAL $malId -> ${jikanStaff.joinToString()}")
-                        artist = jikanStaff.joinToString(", ")
+                    val tenraiStaff = tenraiGetStaff(malId)
+                    if (tenraiStaff.isNotEmpty()) {
+                        ExtLog.d(TAG, "Tenrai staff fallback: MAL $malId -> ${tenraiStaff.joinToString()}")
+                        artist = tenraiStaff.joinToString(", ")
                     }
                 }
             }
@@ -1015,26 +1015,26 @@ class Shinden :
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
         }.sortedBy { it.episode_number }.also { episodes ->
-            // Jikan filler fallback: always try to supplement Shinden's filler data
+            // Tenrai filler fallback: always try to supplement Shinden's filler data
             if (episodes.isNotEmpty()) {
                 val animeTitle = currentAnimeTitle.substringBefore(" ·").trim()
                 val hasAnyFiller = episodes.any { it.name?.contains("Filler") == true }
-                ExtLog.d(TAG, "Jikan filler check: title='$animeTitle', shindenFillers=$hasAnyFiller, eps=${episodes.size}")
-                val malId = jikanSearchMalId(animeTitle)
-                ExtLog.d(TAG, "Jikan filler: malId=$malId for '$animeTitle'")
+                ExtLog.d(TAG, "Tenrai filler check: title='$animeTitle', shindenFillers=$hasAnyFiller, eps=${episodes.size}")
+                val malId = tenraiSearchMalId(animeTitle)
+                ExtLog.d(TAG, "Tenrai filler: malId=$malId for '$animeTitle'")
                 if (malId != null) {
-                    val jikanFillers = jikanGetFillerEpisodes(malId)
-                    ExtLog.d(TAG, "Jikan filler: MAL $malId -> ${jikanFillers.size} fillers for '$animeTitle'")
-                    if (jikanFillers.isNotEmpty()) {
+                    val tenraiFillers = tenraiGetFillerEpisodes(malId)
+                    ExtLog.d(TAG, "Tenrai filler: MAL $malId -> ${tenraiFillers.size} fillers for '$animeTitle'")
+                    if (tenraiFillers.isNotEmpty()) {
                         var added = 0
                         episodes.forEach { ep ->
                             val epNum = ep.episode_number.toInt()
-                            if (epNum in jikanFillers && ep.name?.contains("Filler") != true) {
+                            if (epNum in tenraiFillers && ep.name?.contains("Filler") != true) {
                                 ep.name = "(Filler) ${ep.name}"
                                 added++
                             }
                         }
-                        if (added > 0) ExtLog.d(TAG, "Jikan filler: added $added filler marks for '$animeTitle'")
+                        if (added > 0) ExtLog.d(TAG, "Tenrai filler: added $added filler marks for '$animeTitle'")
                     }
                 }
             }
