@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    implementation(files("libs/nanohttpd.jar"))
+    implementation(project(":lib:m3u8server"))
 }

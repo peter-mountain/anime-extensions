@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    implementation(files("libs/nanohttpd.jar"))
+    api(files("libs/nanohttpd.jar"))
 }
