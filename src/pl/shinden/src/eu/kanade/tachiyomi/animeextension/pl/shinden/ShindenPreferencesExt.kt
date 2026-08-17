@@ -10,7 +10,7 @@ import androidx.preference.SwitchPreferenceCompat
 internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
     SwitchPreferenceCompat(screen.context).apply {
         key = "shinden_login"
-        isPersistent = false
+        setDefaultValue(false)
         title = "Konto Shinden"
         val dn = preferences.getString("shinden_display_name", null)
         val uid = preferences.getString("shinden_user_id", null)
@@ -57,7 +57,7 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
 
     SwitchPreferenceCompat(screen.context).apply {
         key = "preferred_servers"
-        isPersistent = false
+        setDefaultValue(false)
         title = "Preferowane serwery"
         summary = preferences.getString("preferred_servers_list", "")
             ?.replace(",", ", ") ?: "Kliknij aby edytować"
@@ -88,7 +88,7 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
 
     SwitchPreferenceCompat(screen.context).apply {
         key = "google_login_v2"
-        isPersistent = false
+        setDefaultValue(false)
         title = "Zaloguj do Google Drive"
         summary = "Kliknij aby otworzyć logowanie Google. Wymagane dla prywatnych materiałów na GDrive."
         setOnPreferenceClickListener {
@@ -99,7 +99,7 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
 
     SwitchPreferenceCompat(screen.context).apply {
         key = "google_logout"
-        isPersistent = false
+        setDefaultValue(false)
         title = "Wyloguj z Google Drive"
         summary = "Wyczyść cookies Google"
         setOnPreferenceClickListener {
@@ -118,7 +118,7 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
 
     SwitchPreferenceCompat(screen.context).apply {
         key = "skip_domains"
-        isPersistent = false
+        setDefaultValue(false)
         title = "Pomiń domeny"
         summary = preferences.getString("skip_domains_list", "hqq.tv,lulu,facebook.com")?.replace(",", ", ")
             ?.ifBlank { "Kliknij aby edytować" } ?: "Kliknij aby edytować"
