@@ -958,9 +958,11 @@ class Shinden :
     override fun relatedAnimeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        ExtLog.d(TAG, "relatedAnimeListParse: called, url=${response.request.url}")
         val document = response.asJsoup()
-        // Parse "Powiązane Serie" section — ul.figure-list > li.relation_t2t
-        return document.select("li.relation_t2t").mapNotNull { li ->
+        val relationItems = document.select("li.relation_t2t")
+        ExtLog.d(TAG, "relatedAnimeListParse: found ${relationItems.size} li.relation_t2t elements")
+        return relationItems.mapNotNull { li ->
             try {
                 // Get link — prefer /series/ (anime), skip /manga/ etc.
                 val link = li.select("a[href*=/series/]").firstOrNull() ?: return@mapNotNull null
@@ -981,7 +983,9 @@ class Shinden :
             } catch (_: Exception) {
                 null
             }
-        }.distinctBy { it.url }
+        }.distinctBy { it.url }.also { results ->
+            ExtLog.d(TAG, "relatedAnimeListParse: returning ${results.size} related anime: ${results.map { "${it.title} (${it.url})" }}")
+        }
     }
 
     // ================================ Episodes ====================================
@@ -1003,25 +1007,20 @@ class Shinden :
             val num = cols[0].text().trim().toFloatOrNull() ?: return@mapNotNull null
             val title = cols[1].text().trim()
 
-            // Detect filler episodes (Shinden uses i.fa-facebook.button-with-tip for filler)
-            val isShindenFiller = row.selectFirst("i.fa-facebook.button-with-tip") != null
-
             SEpisode.create().apply {
                 setUrlWithoutDomain(href)
                 episode_number = num
                 name = if (title.isNotBlank()) {
-                    if (isShindenFiller) "(Filler) ${num.toInt()}. $title" else "${num.toInt()}. $title"
+                    "${num.toInt()}. $title"
                 } else {
-                    if (isShindenFiller) "(Filler) Odcinek ${num.toInt()}" else "Odcinek ${num.toInt()}"
+                    "Odcinek ${num.toInt()}"
                 }
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
         }.sortedBy { it.episode_number }.also { episodes ->
-            // Tenrai filler fallback: always try to supplement Shinden's filler data
             if (episodes.isNotEmpty()) {
                 val animeTitle = currentAnimeTitle.substringBefore(" ·").trim()
-                val hasAnyFiller = episodes.any { it.name?.contains("Filler") == true }
-                ExtLog.d(TAG, "Tenrai filler check: title='$animeTitle', shindenFillers=$hasAnyFiller, eps=${episodes.size}")
+                ExtLog.d(TAG, "Tenrai filler check: title='$animeTitle', eps=${episodes.size}")
                 val malId = tenraiSearchMalId(animeTitle)
                 ExtLog.d(TAG, "Tenrai filler: malId=$malId for '$animeTitle'")
                 if (malId != null) {
@@ -1030,12 +1029,9 @@ class Shinden :
                     var added = 0
                     episodes.forEach { ep ->
                         val epNum = ep.episode_number.toInt()
-                        val alreadyMarked = ep.name?.contains("Filler") == true || ep.name?.contains("Recap") == true
-                        if (!alreadyMarked) {
-                            when {
-                                epNum in tenraiFillers -> { ep.name = "(Filler) ${ep.name}"; added++ }
-                                epNum in tenraiRecaps -> { ep.name = "(Recap) ${ep.name}"; added++ }
-                            }
+                        when {
+                            epNum in tenraiFillers -> { ep.name = "(Filler) ${ep.name}"; added++ }
+                            epNum in tenraiRecaps -> { ep.name = "(Recap) ${ep.name}"; added++ }
                         }
                     }
                     if (added > 0) ExtLog.d(TAG, "Tenrai: added $added marks for '$animeTitle'")
