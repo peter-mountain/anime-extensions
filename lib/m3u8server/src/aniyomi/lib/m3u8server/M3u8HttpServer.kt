@@ -44,7 +44,7 @@ class M3u8HttpServer(
     private val client: OkHttpClient,
     port: Int = 0, // 0 means random port
     private val fallbackClient: OkHttpClient? = null,
-) : NanoHTTPD("127.0.0.1", port) {
+) : NanoHTTPD(port) {
 
     val port: Int
         get() = super.getListeningPort()
@@ -58,11 +58,15 @@ class M3u8HttpServer(
         try {
             super.start()
             Thread.sleep(200) // give ServerRunnable time to bind
+            val p = super.getListeningPort()
             val bound = try {
-                java.net.Socket("127.0.0.1", super.getListeningPort()).use { true }
+                java.net.Socket("127.0.0.1", p).use { true }
+            } catch (_: Exception) { false }
+            val bound6 = try {
+                java.net.Socket("::1", p).use { true }
             } catch (_: Exception) { false }
             isRunning = true
-            Log.d(tag, "M3U8 HTTP Server started on port ${super.getListeningPort()} bind_ok=$bound")
+            Log.d(tag, "M3U8 HTTP Server started on port $p bind4=$bound bind6=$bound6")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start server: ${e.message}")
             throw e

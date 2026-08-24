@@ -22,14 +22,15 @@ class M3u8Integration(
     private val tag by lazy { javaClass.simpleName }
 
     private fun initializeServer() {
-        if (!serverManager.isRunning()) {
-            try {
-                serverManager.startServer() // Uses random port by default
-                Log.d(tag, "M3U8 server initialized on port: ${serverManager.getServerUrl()}")
-            } catch (e: Exception) {
-                // Log error but don't crash
-                Log.e(tag, "Failed to start M3U8 server: ${e.message}")
-            }
+        if (serverManager.isRunning()) {
+            Log.d(tag, "M3U8 server already running: ${serverManager.getServerUrl()}")
+            return
+        }
+        try {
+            serverManager.startServer()
+            Log.d(tag, "M3U8 server started: ${serverManager.getServerUrl()}")
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to start M3U8 server: ${e.message}")
         }
     }
 
