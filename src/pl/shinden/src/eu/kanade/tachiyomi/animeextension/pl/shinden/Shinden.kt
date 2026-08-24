@@ -796,11 +796,11 @@ class Shinden :
                     val wantedRoles = listOf("Director", "Screenplay", "Music", "Character Design")
                     for (i in 0 until staffArr.length()) {
                         val s = staffArr.getJSONObject(i)
-                    val role = s.optString("role", "")
-                    if (wantedRoles.any { role.contains(it, ignoreCase = true) }) {
-                        val name = s.optJSONObject("person")?.optString("name", "") ?: ""
-                        if (name.isNotBlank()) staffNames.add(name)
-                    }
+                        val role = s.optString("role", "")
+                        if (wantedRoles.any { role.contains(it, ignoreCase = true) }) {
+                            val name = s.optJSONObject("person")?.optString("name", "") ?: ""
+                            if (name.isNotBlank()) staffNames.add(name)
+                        }
                     }
                 }
             }
@@ -1030,8 +1030,14 @@ class Shinden :
                     episodes.forEach { ep ->
                         val epNum = ep.episode_number.toInt()
                         when {
-                            epNum in tenraiFillers -> { ep.name = "(Filler) ${ep.name}"; added++ }
-                            epNum in tenraiRecaps -> { ep.name = "(Recap) ${ep.name}"; added++ }
+                            epNum in tenraiFillers -> {
+                                ep.name = "(Filler) ${ep.name}"
+                                added++
+                            }
+                            epNum in tenraiRecaps -> {
+                                ep.name = "(Recap) ${ep.name}"
+                                added++
+                            }
                         }
                     }
                     if (added > 0) ExtLog.d(TAG, "Tenrai: added $added marks for '$animeTitle'")
