@@ -477,7 +477,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
                         } else {
                             null
                         }
-                        if (!hlsUrl.isNullOrBlank()) return extractHls(hlsUrl, apiOrigin, prefix, cookieStr)
+                        if (!hlsUrl.isNullOrBlank()) return extractHls(hlsUrl, apiOrigin, prefix, finalCookies)
                     }
                 }
                 logDebug("wv_fallback_failed")
@@ -504,7 +504,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
         if (hlsUrl.isNullOrBlank()) {
             return listOf(Video("about:blank", "${prefix}Byseukior: no_url", "about:blank"))
         }
-        return extractHls(hlsUrl, apiOrigin, prefix, cookieStr)
+        return extractHls(hlsUrl, apiOrigin, prefix, finalCookies)
     }
 
     companion object {
