@@ -49,7 +49,7 @@ class M3u8HttpServer(
     val port: Int
         get() = super.getListeningPort()
 
-    private val tag by lazy { javaClass.simpleName }
+    private val tag = "M3u8HttpServer"
 
     @Volatile
     private var isRunning = false

@@ -10,7 +10,7 @@ class M3u8ServerManager(
     private val client: OkHttpClient,
     private val fallbackClient: OkHttpClient? = null,
 ) {
-    private val tag by lazy { javaClass.simpleName }
+    private val tag = "M3u8ServerManager"
     private var server: M3u8HttpServer? = null
 
     /**

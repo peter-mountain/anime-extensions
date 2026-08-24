@@ -19,7 +19,7 @@ class M3u8Integration(
     private val serverManager: M3u8ServerManager = M3u8ServerManager(client, fallbackClient),
 ) {
 
-    private val tag by lazy { javaClass.simpleName }
+    private val tag = "M3u8Integration"
 
     private fun initializeServer() {
         if (serverManager.isRunning()) {
