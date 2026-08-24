@@ -339,7 +339,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
                 "byse_device_id" -> deviceId = value
             }
         }
-        val finalCookies = if (attCookies.isNotEmpty()) listOfNotNull(cookieStr.ifBlank { null }, attCookies.joinToString("; ")).joinToString("; ") else cookieStr
+        val finalCookies = if (attCookies.isNotEmpty()) attCookies.joinToString("; ") else cookieStr
 
         var captchaToken = ""
         try {
@@ -477,7 +477,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
                         } else {
                             null
                         }
-                        if (!hlsUrl.isNullOrBlank()) return extractHls(hlsUrl, apiOrigin, prefix, finalCookies)
+                        if (!hlsUrl.isNullOrBlank()) return extractHls(hlsUrl, apiOrigin, prefix, cookieStr)
                     }
                 }
                 logDebug("wv_fallback_failed")
@@ -504,7 +504,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
         if (hlsUrl.isNullOrBlank()) {
             return listOf(Video("about:blank", "${prefix}Byseukior: no_url", "about:blank"))
         }
-        return extractHls(hlsUrl, apiOrigin, prefix, finalCookies)
+        return extractHls(hlsUrl, apiOrigin, prefix, cookieStr)
     }
 
     companion object {
