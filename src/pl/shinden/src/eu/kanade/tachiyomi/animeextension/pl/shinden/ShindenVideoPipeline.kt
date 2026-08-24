@@ -317,7 +317,18 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
         }
         if (preferences.getBoolean("verbose_logging", false)) {
             ExtLog.d(Shinden.TAG, "=== DONE: ${processed.size} videos total (showEmpty=$showEmpty, filtered=${filtered.size}) ===")
-            ExtLog.d(Shinden.TAG, "=== FINAL: ${filtered.joinToString(" | ") { "${it.quality} [${it.url.take(80)}]" }}")
+            ExtLog.d(
+                Shinden.TAG,
+                "=== FINAL: ${filtered.joinToString(" | ") {
+                    val playbackUrl = it.videoUrl?.ifBlank { it.url } ?: it.url
+                    val route = when {
+                        playbackUrl.startsWith("http://127.0.0.1:") || playbackUrl.startsWith("http://localhost:") -> "proxy"
+                        else -> "direct"
+                    }
+                    val hasUA = it.headers?.get("User-Agent")?.isNotBlank() == true
+                    "${it.quality} [$route,ua=$hasUA] ${playbackUrl.take(120)}"
+                }}",
+            )
         } else {
             ExtLog.d(Shinden.TAG, "=== DONE: ${filtered.size} videos total ===")
         }
