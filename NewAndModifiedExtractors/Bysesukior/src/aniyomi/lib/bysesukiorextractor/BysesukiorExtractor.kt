@@ -339,7 +339,7 @@ class BysesukiorExtractor(private val client: OkHttpClient, private val dns: Dns
                 "byse_device_id" -> deviceId = value
             }
         }
-        val finalCookies = if (attCookies.isNotEmpty()) attCookies.joinToString("; ") else cookieStr
+        val finalCookies = if (attCookies.isNotEmpty()) listOfNotNull(cookieStr.ifBlank { null }, attCookies.joinToString("; ")).joinToString("; ") else cookieStr
 
         var captchaToken = ""
         try {
