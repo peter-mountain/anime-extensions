@@ -306,9 +306,10 @@ internal fun Shinden.videoListParseExt(response: Response): List<Video> {
             }.awaitAll().flatten()
         }
     }.let { result ->
-        val processed = m3u8Integration.processVideoList(result) { video ->
-            video.quality.contains("cda.pl", ignoreCase = true)
-        }
+        val processed = m3u8Integration.processVideoList(result,
+            proxyDash = { video -> video.quality.contains("cda.pl", ignoreCase = true) },
+            skipM3u8 = { video -> video.quality.contains("Byseukior", ignoreCase = true) }
+        )
         val showEmpty = preferences.getBoolean("show_empty_sources", false)
         val filtered = if (!showEmpty) {
             processed.filter { !it.url.startsWith("about:blank") }

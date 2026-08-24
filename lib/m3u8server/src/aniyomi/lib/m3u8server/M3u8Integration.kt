@@ -68,10 +68,15 @@ class M3u8Integration(
      * @param proxyDash Predicate selecting videos whose DASH MPD should be proxied
      * @return Processed video list
      */
-    fun processVideoList(videos: List<Video>, proxyDash: (Video) -> Boolean = { false }): List<Video> {
+    fun processVideoList(
+        videos: List<Video>,
+        proxyDash: (Video) -> Boolean = { false },
+        skipM3u8: (Video) -> Boolean = { false },
+    ): List<Video> {
         initializeServer()
         return videos.map { video ->
             when {
+                skipM3u8(video) -> video
                 isM3u8Url(video.url) -> processManifestVideo(video, dash = false)
                 proxyDash(video) && isDashUrl(video.url) -> processManifestVideo(video, dash = true)
                 else -> video
