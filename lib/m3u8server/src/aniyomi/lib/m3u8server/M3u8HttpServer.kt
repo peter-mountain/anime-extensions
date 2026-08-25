@@ -8,12 +8,9 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.nanohttpd.protocols.http.IHTTPSession
-import org.nanohttpd.protocols.http.NanoHTTPD
-import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
-import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
-import org.nanohttpd.protocols.http.response.Status
+
+import fi.iki.elonen.NanoHTTPD
+
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -94,7 +91,7 @@ class M3u8HttpServer(
             uri.startsWith("/health") -> handleHealthRequest()
             else -> {
                 Log.w(tag, "Unknown endpoint: $uri")
-                newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
+                newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
             }
         }
 
@@ -114,20 +111,20 @@ class M3u8HttpServer(
 
         if (url.isNullOrBlank()) {
             Log.w(tag, "Missing URL parameter in M3U8 request")
-            return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
         }
 
         return try {
             Log.d(tag, "Starting M3U8 processing for: $url")
             val processedContent = runBlocking { processM3u8Content(url, headers) }
             Log.d(tag, "M3U8 processing completed successfully, content length: ${processedContent.length}")
-            newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", processedContent)
+            newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", processedContent)
         } catch (e: UpstreamStatusException) {
             Log.w(tag, "Upstream HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
         } catch (e: Exception) {
             Log.e(tag, "Error processing M3U8: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 
@@ -142,20 +139,20 @@ class M3u8HttpServer(
 
         if (url.isNullOrBlank()) {
             Log.w(tag, "Missing URL parameter in DASH request")
-            return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
         }
 
         return try {
             Log.d(tag, "Starting DASH processing for: $url")
             val processedContent = runBlocking { processDashContent(url, headers) }
             Log.d(tag, "DASH processing completed successfully, content length: ${processedContent.length}")
-            newFixedLengthResponse(Status.OK, "application/dash+xml", processedContent)
+            newFixedLengthResponse(Response.Status.OK, "application/dash+xml", processedContent)
         } catch (e: UpstreamStatusException) {
             Log.w(tag, "Upstream HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
         } catch (e: Exception) {
             Log.e(tag, "Error processing DASH: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 
@@ -174,7 +171,7 @@ class M3u8HttpServer(
 
         if (url.isNullOrBlank()) {
             Log.w(tag, "Missing URL parameter in segment request")
-            return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
         }
 
         val hasAes = keyUrl != null && iv != null
@@ -184,7 +181,7 @@ class M3u8HttpServer(
                 val dashSegment = runBlocking { fetchDashSegmentBytes(url, headers, range) }
                 Log.d(tag, "DASH segment processed, size: ${dashSegment.bytes.size}, upstream=${dashSegment.httpCode}, range=${range ?: "full"}")
                 val response = newFixedLengthResponse(
-                    if (dashSegment.httpCode == 206) Status.PARTIAL_CONTENT else Status.OK,
+                    if (dashSegment.httpCode == 206) Response.Status.PARTIAL_CONTENT else Response.Status.OK,
                     "video/mp4",
                     ByteArrayInputStream(dashSegment.bytes),
                     dashSegment.bytes.size.toLong(),
@@ -203,34 +200,34 @@ class M3u8HttpServer(
                 }
                 Log.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
                 val inputStream = ByteArrayInputStream(segmentData)
-                newChunkedResponse(Status.OK, "video/mp2t", inputStream)
+                newChunkedResponse(Response.Status.OK, "video/mp2t", inputStream)
             }
         } catch (e: UpstreamStatusException) {
             Log.w(tag, "Upstream segment HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
         } catch (e: Exception) {
             Log.e(tag, "Error processing segment: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 
     /**
      * Wraps the [UpstreamStatusException] code in an HTTP response that
      * surfaces the upstream's status (403, 503, …) to the player instead of
-     * collapsing every failure into [Status.INTERNAL_ERROR]. The body carries
+     * collapsing every failure into [Response.Status.INTERNAL_ERROR]. The body carries
      * the upstream URL + code so logcat / mpv diagnostics can pin the cause
      * without re-reading the chain.
      */
     private fun passThroughStatus(e: UpstreamStatusException): Response {
         val nanoStatus = when (e.code) {
-            401 -> Status.UNAUTHORIZED
-            403 -> Status.FORBIDDEN
-            404 -> Status.NOT_FOUND
-            429 -> Status.TOO_MANY_REQUESTS
-            in 400..499 -> Status.BAD_REQUEST
-            500 -> Status.INTERNAL_ERROR
-            503 -> Status.SERVICE_UNAVAILABLE
-            else -> Status.INTERNAL_ERROR
+            401 -> Response.Status.UNAUTHORIZED
+            403 -> Response.Status.FORBIDDEN
+            404 -> Response.Status.NOT_FOUND
+            429 -> Response.Status.TOO_MANY_REQUESTS
+            in 400..499 -> Response.Status.BAD_REQUEST
+            500 -> Response.Status.INTERNAL_ERROR
+            503 -> Response.Status.SERVICE_UNAVAILABLE
+            else -> Response.Status.INTERNAL_ERROR
         }
         val body = "Upstream ${e.code} for ${e.url}\n${e.message}"
         return newFixedLengthResponse(nanoStatus, MIME_PLAINTEXT, body)
@@ -240,7 +237,7 @@ class M3u8HttpServer(
         Log.d(tag, "Health check requested")
         val status = getHealthStatus()
         Log.d(tag, "Health status: $status")
-        return newFixedLengthResponse(Status.OK, MIME_PLAINTEXT, status)
+        return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, status)
     }
 
     /**
