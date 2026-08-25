@@ -19,31 +19,36 @@ class M3u8Integration(
     private val serverManager: M3u8ServerManager = M3u8ServerManager(client, fallbackClient),
 ) {
 
-    private val tag by lazy { javaClass.simpleName }
+    private val tag = "M3u8Integration"
 
     private fun initializeServer() {
-        if (!serverManager.isRunning()) {
-            try {
-                serverManager.startServer() // Uses random port by default
-                Log.d(tag, "M3U8 server initialized on port: ${serverManager.getServerUrl()}")
-            } catch (e: Exception) {
-                // Log error but don't crash
-                Log.e(tag, "Failed to start M3U8 server: ${e.message}")
-            }
+        if (serverManager.isRunning()) {
+            Log.d(tag, "M3U8 server already running: ${serverManager.getServerUrl()}")
+            return
+        }
+        try {
+            serverManager.startServer()
+            Log.d(tag, "M3U8 server started: ${serverManager.getServerUrl()}")
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to start M3U8 server: ${e.message}")
         }
     }
 
     /**
-     * Processes an M3U8 video through the local server. The original
+     * Processes an M3U8 or DASH video through the local server. The original
      * [Video.headers] is consulted to derive `Referer` and `User-Agent`,
-     * which are then re-encoded into the proxied URL so the m3u8 server
-     * can re-issue them on the upstream fetch even if the media player
+     * which are then re-encoded into the proxied URL so the server can
+     * re-issue them on the upstream fetch even if the media player
      * (mpv / ExoPlayer) does not carry them through to localhost.
      */
-    private fun processM3u8Video(originalVideo: Video): Video {
+    private fun processManifestVideo(originalVideo: Video, dash: Boolean): Video {
         val referer = originalVideo.headers?.get("Referer")
         val userAgent = originalVideo.headers?.get("User-Agent")
-        val processedUrl = serverManager.processM3u8Url(originalVideo.url, referer, userAgent)
+        val processedUrl = if (dash) {
+            serverManager.processDashUrl(originalVideo.url, referer, userAgent)
+        } else {
+            serverManager.processM3u8Url(originalVideo.url, referer, userAgent)
+        }
         return Video(
             videoUrl = processedUrl ?: originalVideo.url,
             url = originalVideo.url,
@@ -57,14 +62,17 @@ class M3u8Integration(
     /**
      * Processes a list of videos, identifying and processing only M3U8 files.
      * The M3U8 files should be a direct link to the M3U8 file which consists of segments, not a playlist.
+     * DASH MPDs can additionally be proxied when [proxyDash] matches (e.g. to
+     * re-issue extension headers on every segment fetch for a specific host).
      * @param videos Original video list
+     * @param proxyDash Predicate selecting videos whose DASH MPD should be proxied
      * @return Processed video list
      */
     fun processVideoList(videos: List<Video>): List<Video> {
         initializeServer()
         return videos.map { video ->
             if (isM3u8Url(video.url)) {
-                processM3u8Video(video)
+                processManifestVideo(video, dash = false)
             } else {
                 video
             }
@@ -80,6 +88,16 @@ class M3u8Integration(
         val m3u8Regex = Regex("""\.m3u8($|\?|#)""", RegexOption.IGNORE_CASE)
         return m3u8Regex.containsMatchIn(url) ||
             url.contains("application/vnd.apple.mpegurl", ignoreCase = true)
+    }
+
+    /**
+     * Checks if a URL is a DASH MPD file. Only real MPDs are routed through
+     * the DASH proxy; direct media (e.g. plain MP4 URLs) stay untouched so the
+     * player fetches them directly.
+     */
+    private fun isDashUrl(url: String): Boolean {
+        val mpdRegex = Regex("""\.mpd($|\?|#)""", RegexOption.IGNORE_CASE)
+        return mpdRegex.containsMatchIn(url)
     }
 
     /**
