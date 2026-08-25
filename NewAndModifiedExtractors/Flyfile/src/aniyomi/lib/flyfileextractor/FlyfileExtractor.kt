@@ -7,6 +7,7 @@ import keiyoushi.utils.ExtLog
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import org.json.JSONObject
 
 class FlyfileExtractor(private val client: OkHttpClient) {
     private val playlistUtils by lazy { PlaylistUtils(client) }
@@ -32,14 +33,14 @@ class FlyfileExtractor(private val client: OkHttpClient) {
 
         logDebug("host=$host apiHost=$apiHost mediaId=$mediaId")
 
-        val direct = tryStreamingAssign(apiHost, mediaId, host, headers)
+        val direct = tryStreamingAssign(apiHost, mediaId, host)
         if (direct != null) return direct
 
         logDebug("direct_failed, trying_webview")
         val wvResult = FlyfileWebViewResolver(client).resolve(url, androidUA)
         if (wvResult != null) {
             logDebug("wv_result_len=${wvResult.length}")
-            val data = runCatching { org.json.JSONObject(wvResult) }.getOrNull()
+            val data = runCatching { JSONObject(wvResult) }.getOrNull()
                 ?: return listOf(Video("about:blank", "${prefix}Flyfile: wv_parse_err", "about:blank"))
             val hlsUrl = pickHlsUrl(data)
             if (!hlsUrl.isNullOrBlank()) return extractHls(hlsUrl, "https://$host", prefix)
@@ -57,23 +58,56 @@ class FlyfileExtractor(private val client: OkHttpClient) {
         else -> "api.$embedHost"
     }
 
-    private fun tryStreamingAssign(apiHost: String, mediaId: String, embedHost: String, headers: Headers?): List<Video>? {
-        val apiOrigin = "https://$apiHost"
-        val assignUrl = "https://$apiHost/api/streaming/assign/$mediaId"
-
-        val reqHeaders = Headers.Builder()
-            .set("Referer", "https://$embedHost/embed/$mediaId")
+    private fun apiHeaders(embedHost: String, mediaId: String, apiOrigin: String): Headers {
+        val embedReferer = "https://$embedHost/embed/$mediaId"
+        return Headers.Builder()
+            .set("Referer", embedReferer)
             .set("Origin", apiOrigin)
             .set("User-Agent", androidUA)
             .set("Accept", "application/json, text/plain, */*")
             .set("Accept-Language", "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7")
+            .set("X-FlyFile-View", "embed")
+            .set("X-Embed-Referrer", embedReferer)
+            .set("X-Adblock-Detected", "0")
             .set("Sec-Fetch-Dest", "empty")
             .set("Sec-Fetch-Mode", "cors")
             .set("Sec-Fetch-Site", "same-origin")
             .build()
+    }
 
+    private fun tryStreamingAssign(apiHost: String, mediaId: String, embedHost: String): List<Video>? {
+        val apiOrigin = "https://$apiHost"
+        val headers = apiHeaders(embedHost, mediaId, apiOrigin)
+
+        // Metadata: pick HLS when a quality is READY, otherwise raw stream
+        var useHls = true
+        var title = mediaId
+        val metaResp = runCatching {
+            client.newCall(GET("$apiOrigin/api/public/file/$mediaId", headers)).execute()
+        }.getOrNull()
+        if (metaResp != null) {
+            val metaBody = metaResp.body?.string() ?: ""
+            metaResp.close()
+            if (metaResp.code == 200 && metaBody.isNotBlank()) {
+                runCatching {
+                    val meta = JSONObject(metaBody)
+                    val metaTitle = meta.optString("name", "").trim()
+                    if (metaTitle.isNotEmpty()) title = metaTitle
+                    val qualities = meta.optJSONObject("videoAsset")?.optJSONArray("qualities")
+                    val hasHls = qualities != null && runCatching {
+                        (0 until qualities.length()).any { i ->
+                            qualities.optJSONObject(i)?.optString("status", "") == "READY"
+                        }
+                    }.getOrDefault(false)
+                    val mimeType = meta.optString("mimeType", "")
+                    if (!hasHls && mimeType.startsWith("video/")) useHls = false
+                }.onFailure { ExtLog.d(tag, "meta_parse_err: ${it.message}") }
+            }
+        }
+
+        val assignUrl = "$apiOrigin/api/streaming/assign/$mediaId"
         logDebug("GET $assignUrl")
-        val resp = runCatching { client.newCall(GET(assignUrl, reqHeaders)).execute() }.getOrNull()
+        val resp = runCatching { client.newCall(GET(assignUrl, headers)).execute() }.getOrNull()
             ?: return null
         logDebug("assign_http=${resp.code}")
         val body = resp.body?.string() ?: ""
@@ -82,7 +116,7 @@ class FlyfileExtractor(private val client: OkHttpClient) {
 
         if (resp.code != 200 || body.isBlank()) return null
 
-        val json = runCatching { org.json.JSONObject(body) }.getOrNull() ?: return null
+        val json = runCatching { JSONObject(body) }.getOrNull() ?: return null
         val streamUrl = json.optString("url", "")
         val token = json.optString("token", "")
         if (streamUrl.isBlank() || token.isBlank()) {
@@ -90,12 +124,25 @@ class FlyfileExtractor(private val client: OkHttpClient) {
             return null
         }
 
-        val hlsUrl = "$streamUrl/hls/$token/master.m3u8"
-        logDebug("HLS URL=$hlsUrl")
-        return extractHls(hlsUrl, apiOrigin, prefix = "")
+        if (useHls) {
+            val hlsUrl = "$streamUrl/hls/$token/master.m3u8"
+            logDebug("HLS URL=$hlsUrl")
+            return extractHls(hlsUrl, apiOrigin, prefix = "")
+        }
+
+        val rawUrl = "$streamUrl/raw/$token"
+        logDebug("RAW URL=$rawUrl")
+        return listOf(Video(rawUrl, "Flyfile - $title", rawUrl, headers = outHeaders()))
     }
 
-    private fun pickHlsUrl(data: org.json.JSONObject): String? {
+    private fun outHeaders(): Headers = Headers.Builder()
+        .set("Referer", "https://flyfile.app/")
+        .set("Origin", "https://api.flyfile.app")
+        .set("Accept", "*/*")
+        .set("User-Agent", androidUA)
+        .build()
+
+    private fun pickHlsUrl(data: JSONObject): String? {
         if (data.has("sources")) {
             val srcs = data.getJSONArray("sources")
             if (srcs.length() > 0) {
