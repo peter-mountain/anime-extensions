@@ -3,11 +3,9 @@ package aniyomi.lib.meganzextractor
 import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.nanohttpd.protocols.http.IHTTPSession
-import org.nanohttpd.protocols.http.NanoHTTPD
-import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
-import org.nanohttpd.protocols.http.response.Status
+import fi.iki.elonen.NanoHTTPD
+import fi.iki.elonen.NanoHTTPD.IHTTPSession
+
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.util.UUID
@@ -42,10 +40,10 @@ internal class MegaNzProxyServer(port: Int, private val client: OkHttpClient) : 
     override fun serve(session: IHTTPSession): Response {
         val parts = session.uri.trim('/').split("/")
         if (parts.size < 2 || parts[0] != "stream") {
-            return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
         }
         val info = streams[parts[1]]
-            ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "unknown stream")
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "unknown stream")
 
         var start = 0L
         var end = info.size - 1
@@ -74,7 +72,7 @@ internal class MegaNzProxyServer(port: Int, private val client: OkHttpClient) : 
                 .build()
             val upstreamResp = client.newCall(upstreamReq).execute()
             val upstreamBody = upstreamResp.body
-                ?: return newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "upstream empty body")
+                ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "upstream empty body")
 
             val counterBlock = ByteArray(16)
             System.arraycopy(info.nonce, 0, counterBlock, 0, 8)
@@ -122,14 +120,14 @@ internal class MegaNzProxyServer(port: Int, private val client: OkHttpClient) : 
                 }
             }
 
-            val status = if (isPartial) Status.PARTIAL_CONTENT else Status.OK
+            val status = if (isPartial) Response.Status.PARTIAL_CONTENT else Response.Status.OK
             val response = newFixedLengthResponse(status, info.mimeType, pipedIn, contentLength)
             response.addHeader("Accept-Ranges", "bytes")
             if (isPartial) response.addHeader("Content-Range", "bytes $start-$end/${info.size}")
             response
         } catch (e: Exception) {
             ExtLog.e(tag, "Error setting up mega stream: ${e.message}")
-            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "error: ${e.message}")
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "error: ${e.message}")
         }
     }
 }
