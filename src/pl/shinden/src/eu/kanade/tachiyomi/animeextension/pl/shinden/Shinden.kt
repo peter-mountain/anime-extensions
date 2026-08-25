@@ -2,23 +2,20 @@ package eu.kanade.tachiyomi.animeextension.pl.shinden
 
 import android.app.Application
 import android.content.SharedPreferences
-import android.text.InputType
-import androidx.preference.EditTextPreference
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
+import aniyomi.lib.aparatextractor.AparatExtractor
 import aniyomi.lib.bysesukiorextractor.BysesukiorExtractor
 import aniyomi.lib.cdaextractor.CdaExtractor
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.flyfileextractor.FlyfileExtractor
 import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
 import aniyomi.lib.googledriveplayerextractor.GoogleDrivePlayerExtractor
-import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.lycoriscafeextractor.LycorisCafeExtractor
 import aniyomi.lib.meganzextractor.MegaNzExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import aniyomi.lib.okruextractor.OkruExtractor // NewAndModified
+import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.playmateextractor.PlaymateExtractor
 import aniyomi.lib.sharevideoextractor.ShareVideoExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
@@ -27,9 +24,11 @@ import aniyomi.lib.streamupextractor.StreamupExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vidaraextractor.VidaraExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
@@ -40,19 +39,15 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.ExtLog
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,7 +62,7 @@ class Shinden :
     ConfigurableAnimeSource {
 
     companion object {
-        private const val TAG = "ShindenExt"
+        internal const val TAG = "ShindenExt"
     }
 
     override val name = "Shinden"
@@ -78,35 +73,38 @@ class Shinden :
 
     override val supportsLatest = true
 
-    private val preferences by getPreferencesLazy()
+    internal val preferences by getPreferencesLazy()
 
     // My anime list - server-side filtering state
     // Track whether myAnime mode is active (for getFilterList)
     @Volatile
-    private var isMyAnimeActive = false
+    internal var isMyAnimeActive = false
 
     @Volatile
-    private var myAnimeNoUserId = false
-    private var myAnimeRemainingStatuses: List<String> = emptyList()
-    private var myAnimePendingResults: MutableList<SAnime> = mutableListOf()
-    private var myAnimeActiveTypeFilter: String? = null
-    private var myAnimeActiveSortFilter: Int = 0
-    private var myAnimeActiveLetterFilter: String? = null
-    private var myAnimeActiveEpisodeFilter: String? = null
-    private var myAnimeActiveTitleStatusFilter: String? = null
-    private var myAnimeSearchQuery: String? = null
+    internal var myAnimeNoUserId = false
+    internal var myAnimeRemainingStatuses: List<String> = emptyList()
+    internal var myAnimePendingResults: MutableList<SAnime> = mutableListOf()
+    internal var myAnimeActiveTypeFilter: String? = null
+    internal var myAnimeActiveSortFilter: Int = 0
+    internal var myAnimeActiveLetterFilter: String? = null
+    internal var myAnimeActiveEpisodeFilter: String? = null
+    internal var myAnimeActiveTitleStatusFilter: String? = null
+    internal var myAnimeSearchQuery: String? = null
+
+    @Volatile
+    private var currentAnimeTitle: String = ""
 
     // Batch loading: fetch multiple pages at once
-    private val batchSize = 4
-    private var batchOffset = 1
-    private var batchHasNext = false
-    private var searchBaseUrl = ""
-    private var lastSearchUrl = ""
-    private var lastSearchResult: AnimesPage? = null
-    private var lastSearchQuery = ""
-    private var lastSearchFiltersHash = 0
-    private var lastSearchPage = 0
-    private var currentSearchPage = 1
+    internal val batchSize = 4
+    internal var batchOffset = 1
+    internal var batchHasNext = false
+    internal var searchBaseUrl = ""
+    internal var lastSearchUrl = ""
+    internal var lastSearchResult: AnimesPage? = null
+    internal var lastSearchQuery = ""
+    internal var lastSearchFiltersHash = 0
+    internal var lastSearchPage = 0
+    internal var currentSearchPage = 1
 
     init {
         ExtLog.enabled = preferences.getBoolean("verbose_logging", false)
@@ -129,7 +127,7 @@ class Shinden :
         } catch (_: Exception) {}
     }
 
-    private val cookiePrefs: SharedPreferences by lazy {
+    internal val cookiePrefs: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("cookies_$id", 0x0000)
     }
 
@@ -137,12 +135,33 @@ class Shinden :
         Injekt.get<Application>().getSharedPreferences("genre_cache_$id", 0x0000)
     }
 
+    private val tenraiCache: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("jikan_cache_$id", 0x0000)
+    }
+
     @Volatile
-    private var isLoggedIn = preferences.getString("shinden_user_id", null) != null
+    internal var isLoggedIn = preferences.getString("shinden_user_id", null) != null
+
+    // Force refresh on login: Shinden shows incomplete data to non-logged-in users
+    // Clear Tenrai cache when user logs in so thumbnails/episodes are re-fetched
+    private val loginRefreshListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "shinden_user_id") {
+            val nowLoggedIn = preferences.getString("shinden_user_id", null) != null
+            if (isLoggedIn != nowLoggedIn) {
+                ExtLog.d(TAG, "Login state changed (loggedIn=$nowLoggedIn) - clearing Tenrai cache")
+                tenraiCache.edit().clear().apply()
+                genreCache.edit().clear().apply()
+            }
+            isLoggedIn = nowLoggedIn
+        }
+    }.also { listener ->
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        ExtLog.d(TAG, "Login refresh listener registered")
+    }
 
     // Anime list client-side filter state
-    private var animeListTypeFilter: String? = null
-    private var animeListSortFilter: Int = 0
+    internal var animeListTypeFilter: String? = null
+    internal var animeListSortFilter: Int = 0
 
     private val sharedCookieJar = PersistentCookieJar(cookiePrefs)
 
@@ -157,6 +176,7 @@ class Shinden :
         .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .build()
+    internal val videoClient get() = network.client
 
     private val loginClient: OkHttpClient = network.client.newBuilder()
         .dns(ShindenDns())
@@ -282,24 +302,20 @@ class Shinden :
 
     // ================================ Popular =====================================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/series?view=list&page=$page&sort=rating" +
-                "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
-            headers,
-        )
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET(
+        "$baseUrl/series?view=list&page=$page&sort=rating" +
+            "&series_status[0]=Currently+Airing&series_status[1]=Finished+Airing",
+        headers,
+    )
 
     override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeList(response)
 
     // ================================ Latest ======================================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET(
-            "$baseUrl/series?view=list&page=$page&sort=latest",
-            headers,
-        )
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET(
+        "$baseUrl/series?view=list&page=$page&sort=latest",
+        headers,
+    )
 
     override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeList(response)
 
@@ -557,7 +573,7 @@ class Shinden :
         val currentUrl = response.request.url.toString()
         if (currentUrl == lastSearchUrl && lastSearchResult != null && currentSearchPage == lastSearchPage) {
             ExtLog.d(TAG, "searchAnimeParse: returning cached result for same URL")
-            return lastSearchResult!!
+            return lastSearchResult ?: return AnimesPage(emptyList(), false)
         }
         // No userId + Moje anime = empty
         if (isMyAnimeActive && myAnimeNoUserId) {
@@ -644,47 +660,191 @@ class Shinden :
         YearToFilter(),
         YearPrecisionFilter(),
     )
-    private fun cleanTitle(raw: String): String {
-        // Remove leading "Anime" when it's a single word prefix
-        // Shinden prepends "Anime" to distinguish from manga/novels
-        // The <h1> on details page has "Anime\n\nTitle" pattern
-        val trimmed = raw.trim()
-        val cleaned = trimmed.replace(Regex("""^Anime\s+""", RegexOption.IGNORE_CASE), "")
-        return cleaned.ifBlank { trimmed }
+
+    // ============================== Tenrai (MAL) Integration ============================
+
+    // Helper: Jikan HTTP with retry for transient errors (429, 504, 5xx)
+    private fun tenraiHttpGet(url: String, maxRetries: Int = 3): String? {
+        for (attempt in 1..maxRetries) {
+            try {
+                if (attempt > 1) {
+                    Thread.sleep(1000L * attempt)
+                    ExtLog.d(TAG, "Tenrai HTTP: retry $attempt/$maxRetries for $url")
+                }
+                val request = Request.Builder().url(url).build()
+                network.client.newCall(request).execute().use { resp ->
+                    val body = resp.body?.string() ?: ""
+                    if (resp.code == 429 || resp.code >= 500) {
+                        ExtLog.w(TAG, "Tenrai HTTP: ${resp.code} for $url (attempt $attempt/$maxRetries)")
+                        if (attempt < maxRetries) return@use // retry
+                        return null
+                    }
+                    if (!resp.isSuccessful) {
+                        ExtLog.w(TAG, "Tenrai HTTP: ${resp.code} for $url")
+                        return null
+                    }
+                    return body
+                }
+            } catch (e: Exception) {
+                ExtLog.d(TAG, "Tenrai HTTP exception (attempt $attempt/$maxRetries): ${e.message}")
+                if (attempt >= maxRetries) return null
+            }
+        }
+        return null
     }
 
-    private fun parseAnimeList(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val items = document.select("li.desc-col")
+    private fun tenraiSearchMalId(title: String): Int? {
+        val cached = tenraiCache.getString("mal_$title", null)
+        if (cached != null && cached != "null") return cached.toIntOrNull()
 
-        val entries = items.mapNotNull { li ->
-            val link = li.select("a").firstOrNull { a ->
-                val href = a.attr("href")
-                href.contains("/series/") || href.contains("/titles/")
-            } ?: return@mapNotNull null
+        // Remove invalid cache entries
+        if (cached == "null") {
+            tenraiCache.edit().remove("mal_$title").apply()
+        }
 
-            SAnime.create().apply {
-                title = cleanTitle(link.text())
-                setUrlWithoutDomain(link.attr("abs:href"))
-                thumbnail_url = li.parent()?.selectFirst(".cover-col > a")?.attr("abs:href")
-                val type = li.selectFirst(".title-kind-col")?.text()?.trim()
-                val rating = li.selectFirst(".rate-top")?.text()?.trim()
-                val episodes = li.selectFirst(".episodes-col")?.text()?.trim()
-                val extra = listOfNotNull(
-                    type?.let { "Typ: $it" },
-                    rating?.let { "Ocena: $it" },
-                    episodes?.let { "Odcinki: $it" },
-                ).joinToString(" | ")
-                if (extra.isNotBlank()) {
-                    genre = if (genre.isNullOrBlank()) extra else "$genre | $extra"
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        val url = "https://api.tenrai.org/v1/anime?q=$encodedTitle&limit=1&sfw=true"
+        ExtLog.d(TAG, "Tenrai search: querying for '$title'")
+        val body = tenraiHttpGet(url) ?: return null
+        return try {
+            val json = JSONObject(body)
+            val data = json.optJSONArray("data") ?: return null
+            if (data.length() == 0) return null
+            val first = data.getJSONObject(0)
+            val malId = first.getInt("mal_id")
+            val jikanTitle = first.optString("title", "")
+            ExtLog.d(TAG, "Tenrai search: found MAL $malId for '$title' (jikan_title='$jikanTitle')")
+            tenraiCache.edit().putString("mal_$title", malId.toString()).apply()
+            malId
+        } catch (e: Exception) {
+            ExtLog.e(TAG, "Jikan search exception for '$title': ${e.message}", e)
+            null
+        }
+    }
+
+    // Returns pair: fillerEpisodes, recapEpisodes
+    private fun tenraiGetFillerEpisodes(malId: Int): Pair<Set<Int>, Set<Int>> {
+        val fillerCached = tenraiCache.getString("filler_$malId", null)
+        val recapCached = tenraiCache.getString("recap_$malId", null)
+        if (fillerCached != null && recapCached != null) {
+            return try {
+                val fillerArr = org.json.JSONArray(fillerCached)
+                val recapArr = org.json.JSONArray(recapCached)
+                val fillers = (0 until fillerArr.length()).map { fillerArr.getInt(it) }.toSet()
+                val recaps = (0 until recapArr.length()).map { recapArr.getInt(it) }.toSet()
+                Pair(fillers, recaps)
+            } catch (_: Exception) {
+                Pair(emptySet(), emptySet())
+            }
+        }
+
+        return try {
+            val fillerSet = mutableSetOf<Int>()
+            val recapSet = mutableSetOf<Int>()
+            var page = 1
+            var hasNext = true
+            while (hasNext && page <= 20) {
+                val url = "https://api.tenrai.org/v1/anime/$malId/episodes?page=$page"
+                if (page > 1) Thread.sleep(500)
+                val body = tenraiHttpGet(url) ?: break
+                val json = JSONObject(body)
+                val data = json.optJSONArray("data") ?: break
+                for (i in 0 until data.length()) {
+                    val ep = data.getJSONObject(i)
+                    val epId = ep.getInt("mal_id")
+                    if (ep.optBoolean("filler", false)) fillerSet.add(epId)
+                    if (ep.optBoolean("recap", false)) recapSet.add(epId)
+                }
+                hasNext = json.optJSONObject("pagination")?.optBoolean("has_next_page", false) ?: false
+                page++
+            }
+            val fillerArr = org.json.JSONArray(fillerSet.toList())
+            val recapArr = org.json.JSONArray(recapSet.toList())
+            tenraiCache.edit()
+                .putString("filler_$malId", fillerArr.toString())
+                .putString("recap_$malId", recapArr.toString())
+                .putLong("filler_${malId}_ts", System.currentTimeMillis())
+                .apply()
+            Pair(fillerSet, recapSet)
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "Tenrai filler fetch failed for MAL $malId: ${e.message}")
+            Pair(emptySet(), emptySet())
+        }
+    }
+
+    private fun tenraiGetStaff(malId: Int): List<String> {
+        val cached = tenraiCache.getString("staff_$malId", null)
+        if (cached != null) {
+            return try {
+                val arr = org.json.JSONArray(cached)
+                (0 until arr.length()).map { arr.getString(it) }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        return try {
+            val staffNames = mutableListOf<String>()
+            // Use full endpoint for staff
+            val fullUrl = "https://api.tenrai.org/v1/anime/$malId/full"
+            val body = tenraiHttpGet(fullUrl)
+            if (body != null) {
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                val data = json?.optJSONObject("data")
+                val staffArr = data?.optJSONArray("staff")
+                if (staffArr != null) {
+                    val wantedRoles = listOf("Director", "Screenplay", "Music", "Character Design")
+                    for (i in 0 until staffArr.length()) {
+                        val s = staffArr.getJSONObject(i)
+                        val role = s.optString("role", "")
+                        if (wantedRoles.any { role.contains(it, ignoreCase = true) }) {
+                            val name = s.optJSONObject("person")?.optString("name", "") ?: ""
+                            if (name.isNotBlank()) staffNames.add(name)
+                        }
+                    }
                 }
             }
-        }.distinctBy { it.url }
-
-        val hasNextPage = document.selectFirst("li.pagination-next") != null
-
-        return AnimesPage(entries, hasNextPage)
+            if (staffNames.isNotEmpty()) {
+                val arr = org.json.JSONArray(staffNames)
+                tenraiCache.edit().putString("staff_$malId", arr.toString()).apply()
+            }
+            staffNames
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "Tenrai staff fetch failed for MAL $malId: ${e.message}")
+            emptyList()
+        }
     }
+
+    // ============================== AniList Cover Fallback ============================
+
+    private fun fetchAniListCover(title: String): String? {
+        return try {
+            val body = JSONObject().apply {
+                put("query", "query(\$search: String) { Media(search: \$search, type: ANIME) { coverImage { large } } }")
+                put("variables", JSONObject().put("search", title))
+            }
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val request = Request.Builder()
+                .url("https://graphql.anilist.co")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
+            network.client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val bodyStr = resp.body?.string() ?: return null
+                val json = JSONObject(bodyStr)
+                json.optJSONObject("data")
+                    ?.optJSONObject("Media")
+                    ?.optJSONObject("coverImage")
+                    ?.optString("large")
+                    ?.takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            ExtLog.d(TAG, "AniList cover failed for '$title': ${e.message}")
+            null
+        }
+    }
+
+    private val placeholderCover = Regex("/res/other/placeholders/")
 
     // ============================== Anime Details ================================
 
@@ -744,12 +904,96 @@ class Shinden :
             if (studioText != null) {
                 author = studioText
             }
+
+            // Extract artist (reżyser, scenarzysta, etc.) from staff section
+            val artistRoles = listOf("Reżyser", "Scenarzysta", "Kompozytor", "Projektant postaci")
+            val artistNames = mutableListOf<String>()
+            document.select("section.person-list .person-character-item").forEach { item ->
+                val role = item.selectFirst(".person-character-text p")?.text()?.trim() ?: ""
+                if (artistRoles.any { role.contains(it, ignoreCase = true) }) {
+                    val name = item.selectFirst(".person-character-text h3 a")?.text()?.trim() ?: ""
+                    if (name.isNotBlank()) artistNames.add(name)
+                }
+            }
+            if (artistNames.isNotEmpty()) {
+                artist = artistNames.joinToString(", ")
+            }
+
+            // Tenrai staff fallback: if Shinden didn't find artist, try Jikan
+            if (artist.isNullOrBlank()) {
+                val titleClean = title.substringBefore(" ·").trim()
+                val malId = tenraiSearchMalId(titleClean)
+                if (malId != null) {
+                    val tenraiStaff = tenraiGetStaff(malId)
+                    if (tenraiStaff.isNotEmpty()) {
+                        ExtLog.d(TAG, "Tenrai staff fallback: MAL $malId -> ${tenraiStaff.joinToString()}")
+                        artist = tenraiStaff.joinToString(", ")
+                    }
+                }
+            }
+
+            // Completed anime: no periodic refresh needed
+            if (status == SAnime.COMPLETED) {
+                update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
+            }
+
+            // AniList cover fallback: if no cover or placeholder, try AniList
+            val hasPlaceholder = thumbnail_url == null || "placeholders" in (thumbnail_url ?: "")
+            if (hasPlaceholder) {
+                val titleClean = title.substringBefore(" \u00b7 ").trim()
+                ExtLog.d(TAG, "AniList cover: no cover/placeholder (url=$thumbnail_url), fetching for '$titleClean'")
+                val anilistCover = fetchAniListCover(titleClean)
+                if (anilistCover != null) {
+                    ExtLog.d(TAG, "AniList cover fallback: $titleClean -> ${anilistCover.take(60)}")
+                    thumbnail_url = anilistCover
+                }
+            }
+        }
+    }
+
+    // ================================ Related =======================================
+
+    override val supportsRelatedAnimes: Boolean = true
+
+    override fun relatedAnimeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        ExtLog.d(TAG, "relatedAnimeListParse: called, url=${response.request.url}")
+        val document = response.asJsoup()
+        val relationItems = document.select("li.relation_t2t")
+        ExtLog.d(TAG, "relatedAnimeListParse: found ${relationItems.size} li.relation_t2t elements")
+        return relationItems.mapNotNull { li ->
+            try {
+                // Get link — prefer /series/ (anime), skip /manga/ etc.
+                val link = li.select("a[href*=/series/]").firstOrNull() ?: return@mapNotNull null
+                val href = link.attr("href")
+                if (href.isBlank()) return@mapNotNull null
+
+                val title = link.text().trim()
+                if (title.isBlank()) return@mapNotNull null
+
+                // Get relation type (Sequel, Prequel, Side Story, etc.)
+                val relationType = li.select("figcaption.figure-type").lastOrNull()?.text()?.trim() ?: ""
+
+                SAnime.create().apply {
+                    setUrlWithoutDomain(href)
+                    this.title = "$title ($relationType)"
+                    thumbnail_url = li.selectFirst("img")?.attr("abs:src")
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }.distinctBy { it.url }.also { results ->
+            ExtLog.d(TAG, "relatedAnimeListParse: returning ${results.size} related anime: ${results.map { "${it.title} (${it.url})" }}")
         }
     }
 
     // ================================ Episodes ====================================
 
-    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url + "/all-episodes", headers)
+    override fun episodeListRequest(anime: SAnime): Request {
+        currentAnimeTitle = anime.title ?: ""
+        return GET(baseUrl + anime.url + "/all-episodes", headers)
+    }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -763,20 +1007,43 @@ class Shinden :
             val num = cols[0].text().trim().toFloatOrNull() ?: return@mapNotNull null
             val title = cols[1].text().trim()
 
-            // Detect filler episodes (Shinden uses i.fa-facebook.button-with-tip for filler)
-            val isFiller = row.selectFirst("i.fa-facebook.button-with-tip") != null
-
             SEpisode.create().apply {
                 setUrlWithoutDomain(href)
                 episode_number = num
                 name = if (title.isNotBlank()) {
-                    if (isFiller) "(Filler) ${num.toInt()}. $title" else "${num.toInt()}. $title"
+                    "${num.toInt()}. $title"
                 } else {
-                    if (isFiller) "(Filler) Odcinek ${num.toInt()}" else "Odcinek ${num.toInt()}"
+                    "Odcinek ${num.toInt()}"
                 }
                 date_upload = parseEpisodeDate(cols[4].text().trim())
             }
-        }.sortedBy { it.episode_number }
+        }.sortedBy { it.episode_number }.also { episodes ->
+            if (episodes.isNotEmpty()) {
+                val animeTitle = currentAnimeTitle.substringBefore(" ·").trim()
+                ExtLog.d(TAG, "Tenrai filler check: title='$animeTitle', eps=${episodes.size}")
+                val malId = tenraiSearchMalId(animeTitle)
+                ExtLog.d(TAG, "Tenrai filler: malId=$malId for '$animeTitle'")
+                if (malId != null) {
+                    val (tenraiFillers, tenraiRecaps) = tenraiGetFillerEpisodes(malId)
+                    ExtLog.d(TAG, "Tenrai: MAL $malId -> ${tenraiFillers.size} fillers, ${tenraiRecaps.size} recaps for '$animeTitle'")
+                    var added = 0
+                    episodes.forEach { ep ->
+                        val epNum = ep.episode_number.toInt()
+                        when {
+                            epNum in tenraiFillers -> {
+                                ep.name = "(Filler) ${ep.name}"
+                                added++
+                            }
+                            epNum in tenraiRecaps -> {
+                                ep.name = "(Recap) ${ep.name}"
+                                added++
+                            }
+                        }
+                    }
+                    if (added > 0) ExtLog.d(TAG, "Tenrai: added $added marks for '$animeTitle'")
+                }
+            }
+        }
     }
 
     private fun parseEpisodeDate(raw: String): Long {
@@ -789,805 +1056,42 @@ class Shinden :
         return 0L
     }
 
-    // ================================ Video Links =================================
-
-    private val fallbackAuth = "X2d1ZXN0XzowLDUsMjEwMDAwMDAsMjU1LDQxNzQyOTM2NDQ="
-
-    private val cdaExtractor by lazy { CdaExtractor(client) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
-    private val doodExtractor by lazy { DoodExtractor(client) }
-    private val sibnetExtractor by lazy { SibnetExtractor(client) }
-    private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
-    private val okruExtractor by lazy { OkruExtractor(client, headers) }
-    private val luluExtractor by lazy { LuluExtractor(client, headers) }
-    private val uqloadExtractor by lazy { UqloadExtractor(client) }
-    private val lycorisExtractor by lazy { LycorisCafeExtractor(client) }
-    private val streamupExtractor by lazy { StreamupExtractor(client) }
-    private val megaNzExtractor by lazy { MegaNzExtractor(client) }
-    private val vidaraExtractor by lazy { VidaraExtractor(client) }
-    private val bysesukiorExtractor by lazy { BysesukiorExtractor(client, ShindenDns()) }
-    private val flyfileExtractor by lazy { FlyfileExtractor(client) }
-    private val shareVideoExtractor by lazy { ShareVideoExtractor(client) }
-    private val googleDrivePlayerExtractor by lazy { GoogleDrivePlayerExtractor(client, headers, preferences.getBoolean("verbose_logging", false)) }
-    private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
-    private val playmateExtractor by lazy { PlaymateExtractor(client) }
-    private val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client, dns = ShindenDns()) }
-
-    override fun videoListParse(response: Response): List<Video> {
-        ExtLog.d(TAG, "=== videoListParse http=${response.code} url=${response.request.url} ===")
-
-        val document = response.asJsoup()
-        val bodyText = document.outerHtml()
-
-        val authCode = Regex("""_Storage\.basic\s*=\s*'(.*?)'""")
-            .find(bodyText)
-            ?.groupValues
-            ?.get(1)
-            ?: fallbackAuth
-
-        val sources = parseSources(document, authCode)
-        ExtLog.d(TAG, "parsed ${sources.size} sources")
-
-        if (sources.isEmpty()) {
-            val snippet = bodyText.take(300).replace("\n", " ")
-            return listOf(debugVideo("Brak źródeł. snippet=\"$snippet\""))
-        }
-
-        return runBlocking {
-            with(Dispatchers.IO) {
-                val t0 = System.currentTimeMillis()
-
-                // ===== BATCH PHASE 1: create per-call clients =====
-                val loadClients = sources.map { (_, loadUrl) ->
-                    loadUrl to createPerCallClient()
-                }
-                ExtLog.d(TAG, "batch: created ${loadClients.size} per-call clients")
-
-                // ===== BATCH PHASE 2: fire ALL player_load in parallel =====
-                loadClients.map { (loadUrl, client) ->
-                    async {
-                        runCatching {
-                            val r = client.newCall(GET(loadUrl, headers)).execute()
-                            val code = r.code
-                            r.close()
-                            ExtLog.d(TAG, "batch player_load http=$code for $loadUrl")
-                        }.onFailure {
-                            ExtLog.w(TAG, "batch player_load FAILED: $loadUrl — ${it.message}")
-                        }
-                    }
-                }.awaitAll()
-                ExtLog.d(TAG, "batch: all ${loadClients.size} player_load done in ${System.currentTimeMillis() - t0}ms")
-
-                // ===== BATCH PHASE 3: single sleep(2000) =====
-                ExtLog.d(TAG, "batch: sleep(2000) after ${loadClients.size} player_loads")
-                Thread.sleep(2000)
-
-                // ===== BATCH PHASE 4: player_show sequential with stagger =====
-                val embedUrlMap = mutableMapOf<String, String?>()
-                val failedClients = mutableListOf<Pair<String, OkHttpClient>>()
-                for ((i, pair) in loadClients.withIndex()) {
-                    val (loadUrl, client) = pair
-                    val showUrl = loadUrl.replace("player_load", "player_show") + "&width=0&height=-1"
-                    if (i > 0) Thread.sleep(800)
-                    val resolved = runCatching {
-                        val r = client.newCall(GET(showUrl, headers)).execute()
-                        ExtLog.d(TAG, "batch player_show http=${r.code} for $loadUrl")
-                        val doc = r.asJsoup()
-                        val raw = doc.selectFirst("iframe[src]")?.attr("src")
-                            ?: doc.selectFirst("a[href]")?.attr("href")
-                        raw?.let { if (it.startsWith("//")) "https:$it" else it }
-                    }.onFailure {
-                        ExtLog.w(TAG, "batch player_show FAILED: $showUrl — ${it.message}")
-                    }.getOrNull()
-                    ExtLog.d(TAG, "batch player_show resolved: $resolved for $loadUrl")
-                    embedUrlMap[loadUrl] = resolved
-                    if (resolved == null) {
-                        failedClients.add(loadUrl to client)
-                    }
-                }
-                // ===== PHASE 4b: retry failed player_shows =====
-                if (failedClients.isNotEmpty()) {
-                    val sleepStr = (preferences.getString("sequential_retry_sleep", "")?.trim() ?: "").replace(",", ".")
-                    val seqSleepMs = (sleepStr.toDoubleOrNull() ?: 0.0) * 1000.0
-                    val seqRetry = seqSleepMs > 0
-                    ExtLog.d(TAG, "retry: ${failedClients.size} failed, mode=${if (seqRetry) "sequential(${seqSleepMs.toLong()}ms)" else "stagger"}")
-                    if (seqRetry) {
-                        // Sequential retry: player_load → sleep(3500) → player_show for each
-                        for ((j, pair) in failedClients.withIndex()) {
-                            val (loadUrl, client) = pair
-                            val loadUrl2 = loadUrl
-                            val showUrl = loadUrl2.replace("player_load", "player_show") + "&width=0&height=-1"
-                            val resolved = runCatching {
-                                ExtLog.d(TAG, "seq retry: player_load $loadUrl2")
-                                val rLoad = client.newCall(GET(loadUrl2, headers)).execute()
-                                rLoad.close()
-                                ExtLog.d(TAG, "seq retry: sleep(${seqSleepMs.toLong()}ms)")
-                                Thread.sleep(seqSleepMs.toLong())
-                                val r = client.newCall(GET(showUrl, headers)).execute()
-                                ExtLog.d(TAG, "seq retry: player_show http=${r.code} for $loadUrl2")
-                                val doc = r.asJsoup()
-                                val raw = doc.selectFirst("iframe[src]")?.attr("src")
-                                    ?: doc.selectFirst("a[href]")?.attr("href")
-                                raw?.let { if (it.startsWith("//")) "https:$it" else it }
-                            }.onFailure {
-                                ExtLog.w(TAG, "seq retry FAILED: $loadUrl2 — ${it.message}")
-                            }.getOrNull()
-                            ExtLog.d(TAG, "seq retry resolved: $resolved for $loadUrl2")
-                            if (resolved != null) embedUrlMap[loadUrl2] = resolved
-                        }
-                    } else {
-                        // Stagger retry: player_show only with 3s cooldown + 800ms stagger
-                        Thread.sleep(3000)
-                        for ((j, pair) in failedClients.withIndex()) {
-                            val (loadUrl, client) = pair
-                            if (j > 0) Thread.sleep(800)
-                            val showUrl = loadUrl.replace("player_load", "player_show") + "&width=0&height=-1"
-                            val resolved = runCatching {
-                                val r = client.newCall(GET(showUrl, headers)).execute()
-                                ExtLog.d(TAG, "retry player_show http=${r.code} for $loadUrl")
-                                val doc = r.asJsoup()
-                                val raw = doc.selectFirst("iframe[src]")?.attr("src")
-                                    ?: doc.selectFirst("a[href]")?.attr("href")
-                                raw?.let { if (it.startsWith("//")) "https:$it" else it }
-                            }.onFailure {
-                                ExtLog.w(TAG, "retry player_show FAILED: $showUrl — ${it.message}")
-                            }.getOrNull()
-                            ExtLog.d(TAG, "retry player_show resolved: $resolved for $loadUrl")
-                            if (resolved != null) embedUrlMap[loadUrl] = resolved
-                        }
-                    }
-                    ExtLog.d(TAG, "retry: recovered ${failedClients.count { embedUrlMap[it.first] != null }} of ${failedClients.size}")
-                }
-                ExtLog.d(TAG, "batch: all ${embedUrlMap.size} player_show done in ${System.currentTimeMillis() - t0}ms total")
-
-                // ===== BATCH PHASE 5: extract videos in parallel =====
-                sources.map { (meta, loadUrl) ->
-                    async {
-                        withTimeoutOrNull(30_000L) {
-                            try {
-                                val (host, quality, audio, subs, subsAuthor) = meta
-                                ExtLog.d(TAG, ">>> source: host=$host quality=$quality audio=$audio subs=$subs")
-
-                                val embedUrl = embedUrlMap[loadUrl]
-                                    ?: return@withTimeoutOrNull listOf(debugVideo("$host — resolveEmbedUrl zwrócił null"))
-                                ExtLog.d(TAG, "embedUrl RESOLVED: $embedUrl")
-                                val prefix = buildPrefix(audio, subs)
-
-                                val embedHost = runCatching { embedUrl.toHttpUrl().host }.getOrDefault("?")
-
-                                // Domain skip filter
-                                val skipDomains = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion")?.trim() ?: ""
-                                if (skipDomains.isNotBlank()) {
-                                    val skipList = skipDomains.split(",").map { it.trim().lowercase() }
-                                    if (skipList.any { embedHost.lowercase().contains(it) }) {
-                                        ExtLog.d(TAG, "SKIP domain: $embedHost matched skip_domain list")
-                                        return@withTimeoutOrNull emptyList()
-                                    }
-                                }
-
-                                val (videos, extractorName) = when {
-                                    embedUrl.contains("cda.pl") ->
-                                        cdaExtractor.getVideosFromUrl(embedUrl, headers, prefix) to "Cda"
-
-                                    embedUrl.contains("mp4upload") ->
-                                        mp4uploadExtractor.videosFromUrl(embedUrl, headers, prefix) to "Mp4upload"
-
-                                    embedUrl.contains("dood") ->
-                                        listOfNotNull(doodExtractor.videoFromUrl(embedUrl, prefix = prefix)) to "Dood"
-
-                                    embedUrl.contains("sibnet") ->
-                                        sibnetExtractor.videosFromUrl(embedUrl, prefix) to "Sibnet"
-
-                                    embedUrl.contains("streamtape") ->
-                                        listOfNotNull(streamTapeExtractor.videoFromUrl(embedUrl)) to "Streamtape"
-
-                                    embedUrl.contains("ok.ru") || embedUrl.contains("odnoklassniki") || embedUrl.contains("okru") ->
-                                        okruExtractor.videosFromUrl(embedUrl, prefix = prefix) to "Okru"
-
-                                    embedUrl.contains("uqload") ->
-                                        uqloadExtractor.videosFromUrl(embedUrl, prefix) to "Uqload"
-
-                                    embedUrl.contains("lulu") ->
-                                        luluExtractor.videosFromUrl(embedUrl, prefix) to "Lulu"
-
-                                    embedUrl.contains("lycoris") || embedUrl.contains("lycoris.cafe") ->
-                                        lycorisExtractor.getVideosFromUrl(embedUrl, headers, prefix) to "Lycoris"
-
-                                    embedUrl.contains("streamup") || embedUrl.contains("strmup") ->
-                                        streamupExtractor.getVideosFromUrl(embedUrl, headers, prefix) to "Streamup"
-
-                                    embedUrl.contains("filemoon") ->
-                                        filemoonExtractor.videosFromUrl(embedUrl, prefix = prefix, headers = headers) to "Filemoon"
-
-                                    embedUrl.contains("mega.nz") || embedUrl.contains("mega.co.nz") ->
-                                        megaNzExtractor.videosFromUrl(embedUrl, prefix) to "MegaNz"
-
-                                    embedUrl.contains("vidara.to") || embedUrl.contains("vidara.") ->
-                                        vidaraExtractor.videosFromUrl(embedUrl, prefix = prefix, headers = headers) to "Vidara"
-
-                                    embedUrl.contains("bysesukior") || embedUrl.contains("byssesukior") || embedUrl.contains("q8y5z.com") ->
-                                        bysesukiorExtractor.videosFromUrl(embedUrl, prefix, headers) to "Bysesukior"
-
-                                    embedUrl.contains("flyfile.app") || embedUrl.contains("flyf.lat") || embedUrl.contains("flyfile") ->
-                                        flyfileExtractor.videosFromUrl(embedUrl, prefix, headers) to "Flyfile"
-
-                                    embedUrl.contains("sharevideo.pl") || embedUrl.contains("sharevideo.") ->
-                                        shareVideoExtractor.videosFromUrl(embedUrl, prefix, headers) to "ShareVideo"
-
-                                    embedUrl.contains("drive.google.com") || embedUrl.contains("googleusercontent.com") ->
-                                        googleDrivePlayerExtractor.videosFromUrl(embedUrl) to "GoogleDrivePlayer"
-
-                                    embedUrl.contains("gdriveplayer") || embedUrl.contains("gdrive-player") ->
-                                        gdrivePlayerExtractor.videosFromUrl(embedUrl, "$prefix GdrivePlayer", headers) to "GdrivePlayer"
-
-                                    embedUrl.contains("playmate.to") ->
-                                        playmateExtractor.videosFromUrl(embedUrl, prefix) to "Playmate"
-
-                                    else ->
-                                        universalExtractor.videosFromUrl(embedUrl, headers, customQuality = "$host $quality", prefix = prefix) to "Universal"
-                                }
-
-                                val mapped = videos.map { video ->
-                                    val extractorQuality = video.quality.substringAfterLast(" ").trim()
-                                    val qMatch = Regex("""\b(\d+p|auto)\b""", RegexOption.IGNORE_CASE)
-                                        .find(extractorQuality)?.value
-                                        ?: Regex("""\b(\d+p)\b""", RegexOption.IGNORE_CASE).find(video.quality)?.value
-                                        ?: quality
-                                    val langParts = mutableListOf<String>()
-                                    if (audio.isNotBlank()) langParts.add(audio)
-                                    if (subs.isNotBlank() && !subs.contains("--")) langParts.add(subs)
-                                    val langStr = if (langParts.isNotEmpty()) " [${langParts.joinToString(" - ")}]" else ""
-                                    val authorPart = if (subsAuthor.isNotBlank()) " - $subsAuthor" else ""
-                                    val finalQuality = "$host ($embedHost) $extractorName $qMatch$authorPart$langStr"
-                                    Video(video.url, finalQuality, video.videoUrl, video.headers)
-                                }.let { vids ->
-                                    filterVideosByPreference(vids)
-                                }
-
-                                if (preferences.getBoolean("verbose_logging", false)) {
-                                    ExtLog.d(TAG, "host=$host -> ${mapped.size} videos [verbose: embedHost=$embedHost extractor=$extractorName]")
-                                } else {
-                                    ExtLog.d(TAG, "host=$host -> ${mapped.size} videos")
-                                }
-                                mapped.ifEmpty {
-                                    listOf(debugVideo("$host $quality — embedUrl=$embedUrl ale ekstraktor zwrócił 0 wideo"))
-                                }
-                            } catch (e: Throwable) {
-                                ExtLog.e(TAG, "source error: ${e.message}", e)
-                                listOf(debugVideo("Error: ${e.message?.take(200)}"))
-                            }
-                        } ?: run {
-                            ExtLog.w(TAG, "source timed out: $loadUrl")
-                            emptyList<Video>()
-                        }
-                    }
-                }.awaitAll().flatten()
-            }
-        }.let { result ->
-            val processed = m3u8Integration.processVideoList(result)
-            val showEmpty = preferences.getBoolean("show_empty_sources", false)
-            val filtered = if (!showEmpty) {
-                processed.filter { !it.url.startsWith("about:blank") }
-            } else {
-                processed
-            }
-            if (preferences.getBoolean("verbose_logging", false)) {
-                ExtLog.d(TAG, "=== DONE: ${processed.size} videos total (showEmpty=$showEmpty, filtered=${filtered.size}) ===")
-            } else {
-                ExtLog.d(TAG, "=== DONE: ${filtered.size} videos total ===")
-            }
-            filtered
-        }
-    }
-
-    private data class SourceMeta(
-        val host: String,
-        val quality: String,
-        val audio: String,
-        val subs: String,
-        val subsAuthor: String = "",
-    )
-
-    private fun parseSources(document: org.jsoup.nodes.Document, authCode: String): List<Pair<SourceMeta, String>> {
-        val jsonButtons = document.select(".ep-buttons a[data-episode]")
-        ExtLog.d(TAG, "jsonButtons=${jsonButtons.size}")
-        if (jsonButtons.isNotEmpty()) {
-            return jsonButtons.mapNotNull { a ->
-                runCatching {
-                    val json = JSONObject(a.attr("data-episode"))
-                    val host = json.optString("player", "").trim()
-                    val quality = json.optString("max_res", "SD").trim().ifBlank { "SD" }
-                    val audio = json.optString("lang_audio", "").trim()
-                    val subs = json.optString("lang_subs", "").trim()
-                    val onlineId = json.optString("online_id", "").trim()
-                    val subsAuthorRaw = json.optString("subs_author", "").trim()
-                    val subsAuthor = if (subsAuthorRaw.isNotBlank() && !subsAuthorRaw.equals("null", ignoreCase = true)) {
-                        subsAuthorRaw.replace(Regex("""<[^>]*>"""), "").trim()
-                            .split("|").first().trim()
-                    } else {
-                        ""
-                    }
-                    if (onlineId.isBlank()) return@mapNotNull null
-
-                    val loadUrl = "https://api4.shinden.pl/xhr/$onlineId/player_load"
-                        .toHttpUrl().newBuilder()
-                        .addQueryParameter("auth", authCode)
-                        .build().toString()
-
-                    SourceMeta(host, quality, audio, subs, subsAuthor) to loadUrl
-                }.getOrNull()
-            }
-        }
-
-        val section = document.selectFirst("section.box.episode-player-list")
-        val rows = section?.select("tr") ?: emptyList()
-        ExtLog.d(TAG, "table fallback: section=${section != null} rows=${rows.size}")
-        if (rows.size < 2) return emptyList()
-
-        val vidIdRegex = Regex("""data_(.*?)""")
-        return rows.mapNotNull { row ->
-            val cols = row.select("td")
-            if (cols.size < 6) return@mapNotNull null
-
-            val hostRaw = cols[0].text().trim()
-            val host = if (hostRaw.contains("vidoza", ignoreCase = true)) "Vidoza" else hostRaw
-            val quality = cols[1].text().trim().ifBlank { "SD" }
-            val audio = cols[2].selectFirst("span.mobile-hidden")?.text()?.trim().orEmpty()
-            val subs = cols[3].selectFirst("span.mobile-hidden")?.text()?.trim().orEmpty()
-            val vidId = vidIdRegex.find(cols[5].outerHtml())?.groupValues?.get(1) ?: return@mapNotNull null
-
-            val loadUrl = "https://api4.shinden.pl/xhr/$vidId/player_load"
-                .toHttpUrl().newBuilder()
-                .addQueryParameter("auth", authCode)
-                .build().toString()
-
-            SourceMeta(host, quality, audio, subs) to loadUrl
-        }
-    }
-
-    private fun buildPrefix(audio: String, subs: String): String {
-        val parts = mutableListOf<String>()
-        if (audio.contains("Polski", ignoreCase = true)) parts.add("PL")
-        if (subs.isNotBlank() && !subs.contains("--")) parts.add(subs)
-        val label = parts.joinToString(" - ")
-        return if (label.isNotBlank()) "[$label] " else ""
-    }
-
-    private fun debugVideo(message: String): Video = Video("about:blank", "DEBUG: $message".take(300), "about:blank")
-
-    private fun createPerCallClient(): OkHttpClient = network.client.newBuilder()
-        .connectionPool(okhttp3.ConnectionPool())
-        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-        .cookieJar(object : CookieJar {
-            private val cookies = Collections.synchronizedList(mutableListOf<Cookie>())
-            override fun saveFromResponse(url: HttpUrl, newCookies: List<Cookie>) {
-                synchronized(cookies) {
-                    for (c in newCookies) {
-                        cookies.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
-                        if (c.expiresAt > System.currentTimeMillis()) cookies.add(c)
-                    }
-                }
-            }
-            override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(cookies) {
-                cookies.filter { it.matches(url) }
-            }
-        })
-        .build()
-
-    private fun resolveEmbedUrl(loadUrl: String): String? = runCatching {
-        ExtLog.d(TAG, "resolveEmbedUrl START loadUrl=$loadUrl")
-
-        val perCallClient = network.client.newBuilder()
-            .connectionPool(okhttp3.ConnectionPool())
-            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .cookieJar(object : CookieJar {
-                private val cookies = Collections.synchronizedList(mutableListOf<Cookie>())
-                override fun saveFromResponse(url: HttpUrl, newCookies: List<Cookie>) {
-                    synchronized(cookies) {
-                        for (c in newCookies) {
-                            cookies.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
-                            if (c.expiresAt > System.currentTimeMillis()) cookies.add(c)
-                        }
-                    }
-                }
-                override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(cookies) {
-                    cookies.filter { it.matches(url) }
-                }
-            })
-            .build()
-
-        val r1 = perCallClient.newCall(GET(loadUrl, headers)).execute()
-        ExtLog.d(TAG, "player_load http=${r1.code}")
-        r1.close()
-        Thread.sleep(2000)
-
-        val showUrl = loadUrl.replace("player_load", "player_show") + "&width=0&height=-1"
-        val r2 = perCallClient.newCall(GET(showUrl, headers)).execute()
-        ExtLog.d(TAG, "player_show http=${r2.code}")
-        val doc = r2.asJsoup()
-
-        val raw = doc.selectFirst("iframe[src]")?.attr("src")
-            ?: doc.selectFirst("a[href]")?.attr("href")
-        ExtLog.d(TAG, "raw=$raw")
-        if (raw == null) return@runCatching null
-
-        val resolved = if (raw.startsWith("//")) "https:$raw" else raw
-        ExtLog.d(TAG, "resolveEmbedUrl RESOLVED: $resolved")
-        resolved
-    }.getOrElse {
-        ExtLog.e(TAG, "resolveEmbedUrl EXCEPTION: ${it.message}", it)
-        null
-    }
-
-    // ================================ Video display mode filter ======================
-
-    private fun filterVideosByPreference(vids: List<Video>): List<Video> {
-        if (vids.size <= 1) return vids
-
-        val prefQuality = preferences.getString("preferred_quality", "1080") ?: "1080"
-        val mode = preferences.getString("video_display_mode", "auto_highest") ?: "auto_highest"
-        val prefInt = prefQuality.toIntOrNull()
-
-        val qualityRegex = Regex("""\b(\d+)p\b""", RegexOption.IGNORE_CASE)
-
-        fun numericP(quality: String): Int = qualityRegex.find(quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-
-        fun matchesPref(quality: String): Boolean = prefInt != null && Regex("""\b${prefInt}p\b""", RegexOption.IGNORE_CASE).containsMatchIn(quality)
-
-        // "show all": everything visible, preferred quality sorted to top
-        if (mode == "all") {
-            if (prefInt == null) return vids
-            val preferred = vids.filter { matchesPref(it.quality) }
-            val rest = vids.filter { !matchesPref(it.quality) }
-            return preferred + rest
-        }
-
-        // auto_highest / highest_only: quality filter first, then display mode
-        val filtered = if (prefInt != null) {
-            val exactMatch = vids.filter { matchesPref(it.quality) }
-            if (exactMatch.isNotEmpty()) {
-                exactMatch
-            } else {
-                val lower = vids.filter { numericP(it.quality) in 1 until prefInt }
-                    .sortedByDescending { numericP(it.quality) }
-                if (lower.isNotEmpty()) lower else vids
-            }
-        } else {
-            vids
-        }
-
-        if (filtered.size <= 1) return filtered
-
-        val auto = filtered.filter { it.quality.contains("auto", ignoreCase = true) }
-        val numeric = filtered.filter { numericP(it.quality) > 0 }
-        val maxP = numeric.maxByOrNull { numericP(it.quality) }
-
-        return when (mode) {
-            "highest_only" -> {
-                if (maxP != null) listOf(maxP) else filtered
-            }
-
-            "auto_highest" -> {
-                val r = mutableListOf<Video>()
-                if (maxP != null) r.add(maxP)
-                r.addAll(auto.filter { it.quality != maxP?.quality })
-                r
-            }
-
-            else -> filtered
-        }
-    }
-    // ================================ Anime List =====================================
-
-    private fun parseAnimeListApiEntries(response: Response): List<SAnime> {
-        val body = response.body?.string() ?: return emptyList()
-        return try {
-            val json = JSONObject(body)
-            val items = json.getJSONObject("result").getJSONArray("items")
-
-            // Server-side filtering via API path — iterate items directly
-            val entries = (0 until items.length()).mapNotNull { i ->
-                val item = items.getJSONObject(i)
-                val titleId = item.optInt("titleId", 0)
-                val title = item.optString("title", "")
-                if (titleId == 0 || title.isBlank()) return@mapNotNull null
-
-                SAnime.create().apply {
-                    this.title = cleanTitle(title)
-                    setUrlWithoutDomain("/series/$titleId")
-                    val coverId = item.optInt("coverId", 0)
-                    thumbnail_url = if (coverId > 0) {
-                        "https://shinden.pl/res/images/genuine/$coverId.jpg"
-                    } else {
-                        null
-                    }
-                    val extraParts = listOfNotNull(
-                        item.optString("animeType", null)?.let { "Typ: $it" },
-                        item.optString("titleStatus", null)?.let { "Status: $it" },
-                        item.optInt("episodes", 0).takeIf { it > 0 }?.let { "Odcinki: $it" },
-                        item.optString("watchStatus", null)?.let { "Postęp: $it" },
-                    )
-                    genre = extraParts.joinToString(" | ").ifBlank { null }
-                }
-            }
-
-            ExtLog.d(TAG, "my anime: ${entries.size} items (filtered from ${items.length()})")
-            entries
-        } catch (e: Exception) {
-            ExtLog.e(TAG, "my anime parse error: ${e.message}", e)
-            emptyList()
-        }
-    }
-
-    private fun applyMyAnimeStandardFilters(items: List<SAnime>): List<SAnime> {
-        var result = items
-
-        myAnimeSearchQuery?.let { query ->
-            val lower = query.lowercase()
-            result = result.filter { anime ->
-                anime.title.lowercase().contains(lower)
-            }
-        }
-
-        myAnimeActiveTypeFilter?.let { type ->
-            result = result.filter { anime ->
-                anime.genre?.contains("Typ: $type") == true
-            }
-        }
-
-        myAnimeActiveTitleStatusFilter?.let { status ->
-            result = result.filter { anime ->
-                anime.genre?.contains("Status: $status") == true
-            }
-        }
-
-        myAnimeActiveLetterFilter?.let { letter ->
-            result = result.filter { anime ->
-                val first = anime.title.firstOrNull()?.uppercase() ?: ""
-                if (letter == "0-9") {
-                    first.matches(Regex("[0-9]"))
-                } else {
-                    first == letter
-                }
-            }
-        }
-
-        myAnimeActiveEpisodeFilter?.let { range ->
-            result = result.filter { anime ->
-                val epText = anime.genre?.let { g ->
-                    Regex("Odcinki: (\\d+)").find(g)?.groupValues?.get(1)?.toIntOrNull()
-                } ?: 0
-                when (range) {
-                    "only_1" -> epText == 1
-                    "2_to_14" -> epText in 2..14
-                    "15_to_28" -> epText in 15..28
-                    "29_to_100" -> epText in 29..100
-                    "over_100" -> epText > 100
-                    else -> true
-                }
-            }
-        }
-
-        when (myAnimeActiveSortFilter) {
-            1 -> result = result.sortedBy { it.title.lowercase() }
-            2 -> result = result.sortedByDescending { it.title.lowercase() }
-        }
-
-        return result
-    }
-
-    // ================================ Sort =========================================
-
-    override fun List<Video>.sort(): List<Video> {
-        val serversStr = preferences.getString("preferred_servers_list", "") ?: ""
-        val servers = serversStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        val prefInt = (preferences.getString("preferred_quality", "1080") ?: "1080").toIntOrNull()
-
-        val embedRegex = Regex("\\(([^)]+)\\)")
-        val groupMap = mutableMapOf<String, MutableList<Video>>()
-
-        for (video in this) {
-            val embedHost = embedRegex.find(video.quality)?.groupValues?.get(1) ?: video.quality
-            groupMap.getOrPut(embedHost) { mutableListOf() }.add(video)
-        }
-
-        fun getPriority(host: String): Int {
-            for ((idx, server) in servers.withIndex()) {
-                if (host.contains(server, ignoreCase = true)) return idx
-            }
-            return Int.MAX_VALUE
-        }
-
-        val seen = mutableSetOf<String>()
-        val groupOrder = mutableListOf<String>()
-        for (video in this) {
-            val embedHost = embedRegex.find(video.quality)?.groupValues?.get(1) ?: video.quality
-            if (embedHost !in seen) {
-                seen.add(embedHost)
-                groupOrder.add(embedHost)
-            }
-        }
-
-        // Without preferred servers, lift sources containing the preferred quality to the top
-        if (servers.isEmpty() && prefInt != null) {
-            val qualityRegex = Regex("""\b${prefInt}p\b""", RegexOption.IGNORE_CASE)
-            return groupOrder
-                .sortedBy { host -> !groupMap.getValue(host).any { qualityRegex.containsMatchIn(it.quality) } }
-                .flatMap { groupMap.getValue(it) }
-        }
-
-        return groupOrder
-            .sortedBy { getPriority(it) }
-            .flatMap { groupMap[it].orEmpty() }
-    }
-
-    // ================================ Preferences =================================
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "shinden_login"
-            title = "Konto Shinden"
-            val dn = preferences.getString("shinden_display_name", null)
-            val uid = preferences.getString("shinden_user_id", null)
-            summary = if (isLoggedIn && uid != null && dn != null) "Zalogowano: $dn" else "Kliknij aby się zalogować"
-            setOnPreferenceClickListener { pref ->
-                ShindenLoginWebView.open(
-                    context = screen.context,
-                    client = client,
-                    headers = headers,
-                    isLoggedIn = isLoggedIn,
-                    savedUserId = preferences.getString("shinden_user_id", null),
-                    savedDisplayName = preferences.getString("shinden_display_name", null),
-                    onLoginSuccess = { userId, name ->
-                        isLoggedIn = true
-                        preferences.edit().putString("shinden_user_id", userId)
-                            .putString("shinden_display_name", name).apply()
-                        pref.summary = "Zalogowano: $name"
-                    },
-                    onLogout = {
-                        isLoggedIn = false
-                        cookiePrefs.edit().remove("cookies").apply()
-                        preferences.edit()
-                            .remove("shinden_user_id")
-                            .remove("shinden_display_name")
-                            .remove("shinden_username")
-                            .remove("shinden_password")
-                            .apply()
-                        (client.cookieJar as? PersistentCookieJar)?.clear()
-                        pref.summary = "Kliknij aby się zalogować"
-                    },
-                )
-                true
-            }
-        }.let(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = "preferred_quality"
-            title = "Preferowana jakość"
-            entries = arrayOf("Auto", "1080p", "720p", "480p", "360p")
-            entryValues = arrayOf("auto", "1080", "720", "480", "360")
-            setDefaultValue("1080")
-            summary = "%s"
-        }.let(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "preferred_servers"
-            title = "Preferowane serwery"
-            summary = preferences.getString("preferred_servers_list", "")
-                ?.replace(",", ", ") ?: "Kliknij aby edytować"
-            setOnPreferenceClickListener { pref ->
-                ShindenListEditor.open(
-                    context = screen.context,
-                    title = "Preferowane serwery",
-                    currentItems = preferences.getString("preferred_servers_list", "") ?: "",
-                    allowReorder = true,
-                    defaultSuggestions = listOf("cda.pl", "google", "mega.nz"),
-                    onSave = { newOrder ->
-                        preferences.edit().putString("preferred_servers_list", newOrder).apply()
-                        pref.summary = newOrder.replace(",", ", ")
-                    },
-                )
-                true
-            }
-        }.let(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = "video_display_mode"
-            title = "Wyświetlanie źródeł wideo"
-            summary = "%s"
-            entries = arrayOf("Wszystkie", "Auto + najwyższa", "Tylko najwyższa")
-            entryValues = arrayOf("all", "auto_highest", "highest_only")
-            setDefaultValue("auto_highest")
-        }.let(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "google_login_v2"
-            title = "Zaloguj do Google Drive"
-            summary = "Kliknij aby otworzyć logowanie Google. Wymagane dla prywatnych materiałów na GDrive."
-            setOnPreferenceClickListener {
-                GoogleLoginWebView.open(screen.context)
-                true
-            }
-        }.let(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "google_logout"
-            title = "Wyloguj z Google Drive"
-            summary = "Wyczyść cookies Google"
-            setOnPreferenceClickListener {
-                android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                android.webkit.CookieManager.getInstance().flush()
-                true
-            }
-        }.let(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "show_empty_sources"
-            title = "Wyświetlaj puste źródła"
-            summary = "Źródła które nie zwróciły wideo będą widoczne na liście zamiast ukryte"
-            setDefaultValue(false)
-        }.let(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "skip_domains"
-            title = "Pomiń domeny"
-            summary = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion")?.replace(",", ", ")
-                ?.ifBlank { "Kliknij aby edytować" } ?: "Kliknij aby edytować"
-            setOnPreferenceClickListener { pref ->
-                ShindenListEditor.open(
-                    context = screen.context,
-                    title = "Pomiń domeny",
-                    currentItems = preferences.getString("skip_domains_list", "hqq.tv,luluvid.com,vk.com,dailymotion") ?: "",
-                    allowReorder = false,
-                    defaultSuggestions = listOf("hqq.tv", "luluvid.com", "vk.com", "dailymotion"),
-                    onSave = { newDomains ->
-                        preferences.edit().putString("skip_domains_list", newDomains).apply()
-                        pref.summary = newDomains.replace(",", ", ").ifBlank { "Kliknij aby edytować" }
-                    },
-                )
-                true
-            }
-        }.let(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "verbose_logging"
-            title = "Szczegółowe logi"
-            summary = "Włącz szczegółowe logowanie ekstrakcji źródeł"
-            setDefaultValue(false)
-        }.let(screen::addPreference)
-
-        EditTextPreference(screen.context).apply {
-            key = "sequential_retry_sleep"
-            title = "Sekwencyjne ponawianie (sekundy)"
-            summary = "Sleep między próbami dla zatrzymanych źródeł. Puste/0 = stagger (domyślnie). Np. 3.5 lub 5"
-            dialogTitle = "Sekundy między próbami"
-            setDefaultValue("")
-            setOnBindEditTextListener { editText ->
-                editText.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                editText.addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                    override fun afterTextChanged(s: android.text.Editable?) {
-                        val normalized = s?.toString()?.replace(",", ".") ?: ""
-                        if (normalized != s?.toString()) {
-                            val pos = editText.selectionStart
-                            editText.setText(normalized)
-                            editText.setSelection(minOf(pos, normalized.length))
-                        }
-                    }
-                })
-            }
-        }.let(screen::addPreference)
-    }
+    internal val fallbackAuth = "X2d1ZXN0XzowLDUsMjEwMDAwMDAsMjU1LDQxNzQyOTM2NDQ="
+
+    internal val cdaExtractor by lazy { CdaExtractor(client) }
+    internal val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
+    internal val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
+    internal val aparatExtractor by lazy { AparatExtractor(client) }
+    internal val universalExtractor by lazy { UniversalExtractor(client) }
+    internal val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    internal val doodExtractor by lazy { DoodExtractor(client) }
+    internal val sibnetExtractor by lazy { SibnetExtractor(client) }
+    internal val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
+    internal val okruExtractor by lazy { OkruExtractor(client, headers) }
+    internal val uqloadExtractor by lazy { UqloadExtractor(client) }
+    internal val vkExtractor by lazy { VkExtractor(client, headers) }
+    internal val lycorisExtractor by lazy { LycorisCafeExtractor(client) }
+    internal val streamupExtractor by lazy { StreamupExtractor(client) }
+    internal val megaNzExtractor by lazy { MegaNzExtractor(client) }
+    internal val vidaraExtractor by lazy { VidaraExtractor(client) }
+    internal val bysesukiorExtractor by lazy { BysesukiorExtractor(client, ShindenDns()) }
+    internal val flyfileExtractor by lazy { FlyfileExtractor(client) }
+    internal val shareVideoExtractor by lazy { ShareVideoExtractor(client) }
+    internal val googleDrivePlayerExtractor by lazy { GoogleDrivePlayerExtractor(client, headers, preferences.getBoolean("verbose_logging", false)) }
+    internal val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
+    internal val playmateExtractor by lazy { PlaymateExtractor(client) }
+    internal val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client) }
+
+    // ================================ Delegations to extension files ===
+
+    override fun videoListParse(response: Response): List<Video> = videoListParseExt(response)
+
+    override fun List<Video>.sort(): List<Video> = sortVideos(this)
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) = setupPreferenceScreenExt(screen)
 }
 
-private class PersistentCookieJar(
+internal class PersistentCookieJar(
     private val prefs: SharedPreferences,
 ) : CookieJar {
 
