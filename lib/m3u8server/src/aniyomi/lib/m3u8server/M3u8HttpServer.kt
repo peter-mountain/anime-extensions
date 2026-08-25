@@ -78,7 +78,7 @@ class M3u8HttpServer(
 
     fun isRunning(): Boolean = isRunning
 
-    override fun handle(session: IHTTPSession): Response {
+    override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         val method = session.method
 
