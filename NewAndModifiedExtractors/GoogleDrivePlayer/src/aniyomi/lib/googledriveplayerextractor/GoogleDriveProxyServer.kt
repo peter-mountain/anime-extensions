@@ -3,9 +3,11 @@ package aniyomi.lib.googledriveplayerextractor
 import keiyoushi.utils.ExtLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import fi.iki.elonen.NanoHTTPD
-import fi.iki.elonen.NanoHTTPD.IHTTPSession
-
+import org.nanohttpd.protocols.http.IHTTPSession
+import org.nanohttpd.protocols.http.NanoHTTPD
+import org.nanohttpd.protocols.http.response.Response
+import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
+import org.nanohttpd.protocols.http.response.Status
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -32,14 +34,14 @@ internal class GoogleDriveProxyServer(
         return id
     }
 
-    override fun serve(session: IHTTPSession): Response {
+    override fun handle(session: IHTTPSession): Response {
         val parts = session.uri.trim('/').split("/")
         if (parts.size < 2 || parts[0] != "stream") {
-            return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
+            return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
         }
         val info =
             streams[parts[1]]
-                ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "unknown stream: ${parts[1]}")
+                ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "unknown stream: ${parts[1]}")
 
         ExtLog.d(tag, "Proxy request for ${parts[1]} range=${session.headers["range"]}")
 
@@ -65,7 +67,7 @@ internal class GoogleDriveProxyServer(
             val upstreamResp = client.newCall(reqBuilder.build()).execute()
             val upstreamBody =
                 upstreamResp.body
-                    ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "upstream empty body")
+                    ?: return newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "upstream empty body")
 
             val contentType = upstreamResp.header("Content-Type") ?: "video/mp4"
             val contentLength = upstreamResp.header("Content-Length")?.toLongOrNull() ?: -1
@@ -75,7 +77,7 @@ internal class GoogleDriveProxyServer(
 
             if (upstreamCode == 403) {
                 return newFixedLengthResponse(
-                    Response.Status.FORBIDDEN,
+                    Status.FORBIDDEN,
                     MIME_PLAINTEXT,
                     "upstream 403: ${upstreamBody.string().take(200)}",
                 )
@@ -84,7 +86,7 @@ internal class GoogleDriveProxyServer(
             val isPartial = upstreamCode == 206
             val response =
                 newFixedLengthResponse(
-                    if (isPartial) Response.Status.PARTIAL_CONTENT else Response.Status.OK,
+                    if (isPartial) Status.PARTIAL_CONTENT else Status.OK,
                     contentType,
                     upstreamBody.byteStream(),
                     contentLength,
@@ -98,7 +100,7 @@ internal class GoogleDriveProxyServer(
             response
         } catch (e: Exception) {
             ExtLog.e(tag, "Proxy error: ${e.message}", e)
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "error: ${e.message}")
+            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "error: ${e.message}")
         }
     }
 }
