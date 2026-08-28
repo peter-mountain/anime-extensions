@@ -17,6 +17,7 @@ import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.GeneralSecurityException
 import javax.crypto.Cipher
@@ -56,6 +57,16 @@ class M3u8HttpServer(
     override fun start() {
         try {
             super.start()
+            Thread.sleep(200) // give ServerRunnable time to bind
+            val p = super.getListeningPort()
+            val bound = try {
+                java.net.Socket("127.0.0.1", p).use { true }
+            } catch (_: Exception) { false }
+            val bound6 = try {
+                java.net.Socket("::1", p).use { true }
+            } catch (_: Exception) { false }
+            isRunning = true
+            Log.d(tag, "M3U8 HTTP Server started on port $p bind4=$bound bind6=$bound6")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start server: ${e.message}")
             throw e
@@ -92,9 +103,10 @@ class M3u8HttpServer(
     }
 
     private fun handleM3u8Request(session: IHTTPSession): Response {
-        val url = session.parameters["url"]?.first()
-        val fallbackReferer = session.parameters["referer"]?.first()
-        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val params = queryParams(session)
+        val url = params["url"]
+        val fallbackReferer = params["referer"]
+        val fallbackUserAgent = params["useragent"]
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
         Log.d(tag, "Processing M3U8 request for URL: $url")
@@ -120,9 +132,10 @@ class M3u8HttpServer(
     }
 
     private fun handleDashRequest(session: IHTTPSession): Response {
-        val url = session.parameters["url"]?.first()
-        val fallbackReferer = session.parameters["referer"]?.first()
-        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val params = queryParams(session)
+        val url = params["url"]
+        val fallbackReferer = params["referer"]
+        val fallbackUserAgent = params["useragent"]
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
         Log.d(tag, "Processing DASH request for URL: $url")
@@ -147,12 +160,13 @@ class M3u8HttpServer(
     }
 
     private fun handleSegmentRequest(session: IHTTPSession): Response {
-        val url = session.parameters["url"]?.first()
-        val keyUrl = session.parameters["key"]?.first()
-        val iv = session.parameters["iv"]?.first()
-        val isDash = session.parameters["dash"]?.first() == "1"
-        val fallbackReferer = session.parameters["referer"]?.first()
-        val fallbackUserAgent = session.parameters["useragent"]?.first()
+        val params = queryParams(session)
+        val url = params["url"]
+        val keyUrl = params["key"]
+        val iv = params["iv"]
+        val isDash = params["dash"] == "1"
+        val fallbackReferer = params["referer"]
+        val fallbackUserAgent = params["useragent"]
         val headers = extractHeadersFromSession(session, fallbackReferer, fallbackUserAgent)
 
         Log.d(tag, "Processing segment request for URL: $url (key=${keyUrl != null}, iv=${iv != null}, dash=$isDash)")
@@ -272,6 +286,31 @@ class M3u8HttpServer(
 
         Log.d(tag, "Extracted headers (referer=${headers["referer"]?.take(80) ?: "none"}, ua=${headers["user-agent"]?.take(40) ?: "none"})")
         return headers
+    }
+
+    /**
+     * Resolves request parameters. DASH MPD rewrites embed the whole query
+     * (`url=...&dash=1&referer=...`) inside a single `q` value so the local
+     * URLs contain no raw `&` — those would need `&amp;` escaping in XML and
+     * break parsers that re-read the unescaped attribute (mpv / ffmpeg).
+     * Plain `url`/`key`/`iv`/`referer`/`useragent`/`dash` parameters remain
+     * supported for the HLS playlist rewrites.
+     */
+    private fun queryParams(session: IHTTPSession): Map<String, String> {
+        val q = session.parameters["q"]?.first()
+        if (q.isNullOrBlank()) {
+            return session.parameters.mapValues { it.value.first() }
+        }
+        val params = mutableMapOf<String, String>()
+        q.split("&").forEach { pair ->
+            val idx = pair.indexOf('=')
+            if (idx > 0) {
+                params[pair.substring(0, idx)] = URLDecoder.decode(pair.substring(idx + 1), Charsets.UTF_8.name())
+            } else if (idx == 0) {
+                params[""] = URLDecoder.decode(pair.substring(1), Charsets.UTF_8.name())
+            }
+        }
+        return params
     }
 
     /**

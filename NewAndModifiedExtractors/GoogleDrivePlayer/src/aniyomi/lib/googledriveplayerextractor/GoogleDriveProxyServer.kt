@@ -34,7 +34,7 @@ internal class GoogleDriveProxyServer(
         return id
     }
 
-    override fun handle(session: IHTTPSession): Response {
+    override fun serve(session: IHTTPSession): Response {
         val parts = session.uri.trim('/').split("/")
         if (parts.size < 2 || parts[0] != "stream") {
             return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
