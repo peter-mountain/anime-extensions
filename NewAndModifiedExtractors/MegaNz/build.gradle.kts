@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
+    implementation(project(":lib:m3u8server"))
 }
