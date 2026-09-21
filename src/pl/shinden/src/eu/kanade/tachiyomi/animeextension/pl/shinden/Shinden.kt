@@ -1080,7 +1080,7 @@ class Shinden :
     internal val googleDrivePlayerExtractor by lazy { GoogleDrivePlayerExtractor(client, headers, preferences.getBoolean("verbose_logging", false)) }
     internal val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
     internal val playmateExtractor by lazy { PlaymateExtractor(client) }
-    internal val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client) }
+    internal val m3u8Integration by lazy { aniyomi.lib.m3u8server.M3u8Integration(client, dns = ShindenDns()) }
 
     // ================================ Delegations to extension files ===
 

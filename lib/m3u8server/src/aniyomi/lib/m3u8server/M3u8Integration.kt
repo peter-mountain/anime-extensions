@@ -2,6 +2,7 @@ package aniyomi.lib.m3u8server
 
 import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Video
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 
 /**
@@ -12,11 +13,19 @@ import okhttp3.OkHttpClient
  * @param fallbackClient optional secondary OkHttp client consulted when
  *   the primary client throws on a Cloudflare-solve failure. Should be
  *   CF-interceptor-free; supplies the header-gated retry leg.
+ * @param dns optional DNS resolver applied to the upstream clients used by
+ *   the proxy. Extensions that need custom DNS (e.g. Shinden's DoH) must
+ *   pass it here, otherwise the proxy resolves hosts through the system
+ *   resolver and header-gated CDNs may return 403/404 on segment fetches.
  */
 class M3u8Integration(
     client: OkHttpClient,
     fallbackClient: OkHttpClient? = null,
-    private val serverManager: M3u8ServerManager = M3u8ServerManager(client, fallbackClient),
+    dns: Dns? = null,
+    private val serverManager: M3u8ServerManager = M3u8ServerManager(
+        client = if (dns != null) client.newBuilder().dns(dns).build() else client,
+        fallbackClient = fallbackClient?.let { if (dns != null) it.newBuilder().dns(dns).build() else it },
+    ),
 ) {
 
     private val tag = "M3u8Integration"
@@ -71,10 +80,10 @@ class M3u8Integration(
     fun processVideoList(videos: List<Video>): List<Video> {
         initializeServer()
         return videos.map { video ->
-            if (isM3u8Url(video.url)) {
-                processManifestVideo(video, dash = false)
-            } else {
-                video
+            when {
+                isM3u8Url(video.url) -> processManifestVideo(video, dash = false)
+                isDashUrl(video.url) -> processManifestVideo(video, dash = true)
+                else -> video
             }
         }
     }
