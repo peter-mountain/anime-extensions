@@ -41,7 +41,7 @@ import javax.crypto.spec.SecretKeySpec
  *   solve failures bubble up as `UpstreamStatusException(503, …)`.
  */
 class M3u8HttpServer(
-    private val client: OkHttpClient,
+    client: OkHttpClient,
     port: Int = 0, // 0 means random port
     private val fallbackClient: OkHttpClient? = null,
 ) : NanoHTTPD(port) {
@@ -50,6 +50,22 @@ class M3u8HttpServer(
         get() = super.getListeningPort()
 
     private val tag = "M3u8HttpServer"
+
+    /**
+     * Plain client without interceptors for clean upstream fetches.
+     *
+     * The extension [client] carries interceptors that add Shinden-specific
+     * headers (browser fingerprint, login cookies). Header-gated CDNs such as
+     * the ByseSukior one reject those requests with 404, so upstream fetches
+     * must run through a client that shares the connection pool and DNS but
+     * none of the interceptors.
+     */
+    private val upstreamClient: OkHttpClient = client.newBuilder()
+        .apply {
+            interceptors().clear()
+            networkInterceptors().clear()
+        }
+        .build()
 
     @Volatile
     private var isRunning = false
@@ -431,7 +447,7 @@ class M3u8HttpServer(
         }
         val request = requestBuilder.build()
 
-        client.newCall(request).execute().use { response ->
+        upstreamClient.newCall(request).execute().use { response ->
             Log.d(tag, "Segment HTTP response code: ${response.code}")
             if (!response.isSuccessful) {
                 Log.e(tag, "Failed to fetch segment, HTTP code: ${response.code}")
@@ -461,7 +477,7 @@ class M3u8HttpServer(
             requestBuilder.addHeader("Range", range)
         }
 
-        client.newCall(requestBuilder.build()).execute().use { response ->
+        upstreamClient.newCall(requestBuilder.build()).execute().use { response ->
             if (response.code != 200 && response.code != 206) {
                 Log.e(tag, "Failed to fetch DASH segment, HTTP code: ${response.code}")
                 throw UpstreamStatusException(response.code, url, "Failed to fetch dash segment")
@@ -540,7 +556,7 @@ class M3u8HttpServer(
         val request = requestBuilder.build()
 
         try {
-            client.newCall(request).execute().use { response ->
+            upstreamClient.newCall(request).execute().use { response ->
                 Log.d(tag, "M3U8 HTTP response code: ${response.code}")
 
                 if (!response.isSuccessful) {
