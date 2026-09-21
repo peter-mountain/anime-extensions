@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    api(files("libs/nanohttpd.jar"))
+    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
 }
