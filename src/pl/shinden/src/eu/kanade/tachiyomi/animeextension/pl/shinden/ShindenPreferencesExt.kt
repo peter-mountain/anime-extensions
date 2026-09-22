@@ -86,28 +86,7 @@ internal fun Shinden.setupPreferenceScreenExt(screen: PreferenceScreen) {
         setDefaultValue("auto_highest")
     }.let(screen::addPreference)
 
-    SwitchPreferenceCompat(screen.context).apply {
-        key = "google_login_v2"
-        setDefaultValue(false)
-        title = "Zaloguj do Google Drive"
-        summary = "Kliknij aby otworzyć logowanie Google. Wymagane dla prywatnych materiałów na GDrive."
-        setOnPreferenceClickListener {
-            GoogleLoginWebView.open(screen.context)
-            true
-        }
-    }.let(screen::addPreference)
 
-    SwitchPreferenceCompat(screen.context).apply {
-        key = "google_logout"
-        setDefaultValue(false)
-        title = "Wyloguj z Google Drive"
-        summary = "Wyczyść cookies Google"
-        setOnPreferenceClickListener {
-            android.webkit.CookieManager.getInstance().removeAllCookies(null)
-            android.webkit.CookieManager.getInstance().flush()
-            true
-        }
-    }.let(screen::addPreference)
 
     SwitchPreferenceCompat(screen.context).apply {
         key = "show_empty_sources"
